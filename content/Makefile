@@ -4,6 +4,7 @@ S_CONTENT :=			\
 	content.c		\
 	content_factory.c	\
 	fetch.c			\
+	request_filter.c		\
 	hlcache.c		\
 	llcache.c		\
 	mimesniff.c		\

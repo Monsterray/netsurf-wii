@@ -52,6 +52,7 @@
 #include "desktop/gui_internal.h"
 
 #include "content/fetch.h"
+#include "content/request_filter.h"
 #include "content/backing_store.h"
 #include "content/urldb.h"
 
@@ -2099,6 +2100,33 @@ llcache_object_retrieve(nsurl *url,
 	llcache_object *obj;
 	nsurl *defragmented_url;
 	bool uncachable = false;
+
+	/* This common path includes fresh cache hits and redirected resources.
+	 * Explicit navigations and requests without an initiating page bypass
+	 * it. */
+	if (request_filter_active() && referer &&
+	    !(flags & LLCACHE_RETRIEVE_VERIFIABLE)) {
+		lwc_string *scheme = nsurl_get_component(url, NSURL_SCHEME);
+		bool web = scheme &&
+			   (strcmp(lwc_string_data(scheme), "http") == 0 ||
+			    strcmp(lwc_string_data(scheme), "https") == 0);
+		if (scheme)
+			lwc_string_unref(scheme);
+		if (web) {
+			lwc_string *host = nsurl_get_component(url, NSURL_HOST);
+			lwc_string *origin = nsurl_get_component(referer,
+								 NSURL_HOST);
+			bool rejected = request_filter_blocked(
+				host ? lwc_string_data(host) : NULL,
+				origin ? lwc_string_data(origin) : NULL);
+			if (host)
+				lwc_string_unref(host);
+			if (origin)
+				lwc_string_unref(origin);
+			if (rejected)
+				return NSERROR_PERMISSION;
+		}
+	}
 
 	NSLOG(llcache, DEBUG, "Retrieve %s (%"PRIx32", %s, %p)", nsurl_access(url), flags,
 		     referer==NULL?"":nsurl_access(referer), post);
