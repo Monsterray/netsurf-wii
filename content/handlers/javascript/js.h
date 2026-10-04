@@ -67,7 +67,7 @@ void js_finalise(void);
  *
  * There is usually one heap per browser window.
  *
- * \param timeout elapsed wallclock time (in seconds) before \a callback is called
+ * \param timeout execution limit in seconds; nonpositive values use the 10-second default
  * \param heap Updated to the created JS heap
  * \return NSERROR_OK on success, appropriate error otherwise.
  */

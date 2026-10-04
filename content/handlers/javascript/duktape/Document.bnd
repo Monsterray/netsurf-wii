@@ -16,8 +16,18 @@ prologue Document()
 #include "content/hlcache.h"
 #include "html/private.h"
 #include "content/urldb.h"
+#include <dom/html/html_document.h>
 
 #define HANDLER_MAGIC MAGIC(HANDLER_MAP)
+
+static duk_ret_t document_push_title(duk_context *ctx, void *data)
+{
+	dom_string *title = data;
+	duk_push_lstring(ctx,
+			 title ? dom_string_data(title) : "",
+			 title ? dom_string_byte_length(title) : 0);
+	return 1;
+}
 %}
 
 
@@ -201,6 +211,70 @@ method Document::createDocumentFragment()
 	dom_node_unref(frag); /* The pushed node holds the reference now */
 
 	return 1;
+%}
+
+getter Document::title()
+%{
+	dom_string *title = NULL;
+	if (dom_html_document_get_title(priv->parent.node, &title) != DOM_NO_ERR)
+		return 0;
+	/* Keep the DOM reference cleanup reachable when the JS heap is full. */
+	duk_int_t result = duk_safe_call(ctx, document_push_title, title, 0, 1);
+	if (title)
+		dom_string_unref(title);
+	if (result != DUK_EXEC_SUCCESS)
+		return duk_throw(ctx);
+	return 1;
+%}
+
+setter Document::title()
+%{
+	duk_size_t length;
+	const char *text = duk_to_lstring(ctx, 0, &length);
+	dom_string *title;
+	if (dom_string_create((const uint8_t *)text, length, &title) != DOM_NO_ERR)
+		return duk_error(ctx,
+				 DUK_ERR_ERROR,
+				 "Unable to allocate document title");
+	dom_nodelist *nodes = NULL;
+	dom_node *node = NULL, *head = NULL, *appended = NULL;
+	dom_exception error = dom_document_get_elements_by_tag_name(
+		priv->parent.node,
+		corestring_dom_TITLE,
+		&nodes);
+	if (error == DOM_NO_ERR)
+		error = dom_nodelist_item(nodes, 0, &node);
+	if (nodes)
+		dom_nodelist_unref(nodes);
+	if (error == DOM_NO_ERR && node == NULL) {
+		nodes = NULL;
+		error = dom_document_get_elements_by_tag_name(priv->parent.node,
+							      corestring_dom_HEAD,
+							      &nodes);
+		if (error == DOM_NO_ERR)
+			error = dom_nodelist_item(nodes, 0, &head);
+		if (nodes)
+			dom_nodelist_unref(nodes);
+		if (error == DOM_NO_ERR && head != NULL) {
+			error = dom_document_create_element(priv->parent.node,
+							    corestring_dom_TITLE,
+							    &node);
+			if (error == DOM_NO_ERR)
+				error = dom_node_append_child(head, node, &appended);
+		}
+	}
+	if (error == DOM_NO_ERR && node != NULL)
+		error = dom_node_set_text_content(node, title);
+	if (appended)
+		dom_node_unref(appended);
+	if (head)
+		dom_node_unref(head);
+	if (node)
+		dom_node_unref(node);
+	dom_string_unref(title);
+	if (error != DOM_NO_ERR)
+		return duk_error(ctx, DUK_ERR_ERROR, "Unable to set document title");
+	return 0;
 %}
 
 getter Document::head()

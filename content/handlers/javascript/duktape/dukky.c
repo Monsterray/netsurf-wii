@@ -62,6 +62,11 @@ struct jsheap {
 	bool pending_destroy; /**< Whether this heap is pending destruction */
 	unsigned int live_threads; /**< number of live threads */
 	uint64_t exec_start_time;
+	uint64_t timeout_ms;
+	unsigned exec_depth;
+#ifdef GEKKO
+	size_t allocated_bytes;
+#endif
 };
 
 /**
@@ -545,32 +550,91 @@ dukky_inject_not_ctr(duk_context *ctx, int idx, const char *name)
  * block, as do debugging tools such as Electric Fence by Bruce Perens.
  */
 
+#ifdef GEKKO
+/* Bound each Wii JS heap, including our per-allocation accounting header. */
+#define WII_JS_HEAP_LIMIT (8u * 1024u * 1024u)
+union dukky_allocation {
+	size_t bytes;
+	double alignment;
+	void *pointer;
+};
+#endif
+
 static void *dukky_alloc_function(void *udata, duk_size_t size)
 {
 	if (size == 0)
 		return NULL;
-
+#ifdef GEKKO
+	jsheap *heap = udata;
+	if (size > WII_JS_HEAP_LIMIT - sizeof(union dukky_allocation) ||
+	    size + sizeof(union dukky_allocation) >
+		    WII_JS_HEAP_LIMIT - heap->allocated_bytes)
+		return NULL;
+	size_t bytes = size + sizeof(union dukky_allocation);
+	union dukky_allocation *allocation = malloc(bytes);
+	if (!allocation)
+		return NULL;
+	allocation->bytes = bytes;
+	heap->allocated_bytes += bytes;
+	return allocation + 1;
+#else
 	return malloc(size);
+#endif
+}
+
+static void dukky_free_function(void *udata, void *ptr)
+{
+#ifdef GEKKO
+	if (ptr) {
+		jsheap *heap = udata;
+		union dukky_allocation *allocation =
+			(union dukky_allocation *)ptr - 1;
+		heap->allocated_bytes -= allocation->bytes;
+		free(allocation);
+	}
+#else
+	free(ptr);
+#endif
 }
 
 static void *dukky_realloc_function(void *udata, void *ptr, duk_size_t size)
 {
-	if (ptr == NULL && size == 0)
-		return NULL;
-
-	if (size == 0) {
-		free(ptr);
+	if (!ptr)
+		return dukky_alloc_function(udata, size);
+	if (!size) {
+		dukky_free_function(udata, ptr);
 		return NULL;
 	}
-
+#ifdef GEKKO
+	jsheap *heap = udata;
+	union dukky_allocation *old = (union dukky_allocation *)ptr - 1;
+	size_t remaining = heap->allocated_bytes - old->bytes;
+	if (size > WII_JS_HEAP_LIMIT - sizeof(*old) ||
+	    size + sizeof(*old) > WII_JS_HEAP_LIMIT - remaining)
+		return NULL;
+	size_t bytes = size + sizeof(*old);
+	union dukky_allocation *allocation = realloc(old, bytes);
+	if (!allocation)
+		return NULL; /* The old allocation and accounting survive. */
+	allocation->bytes = bytes;
+	heap->allocated_bytes = remaining + bytes;
+	return allocation + 1;
+#else
 	return realloc(ptr, size);
+#endif
 }
 
-
-static void dukky_free_function(void *udata, void *ptr)
+static duk_ret_t dukky_setup_heap(duk_context *ctx, void *udata)
 {
-	if (ptr != NULL)
-		free(ptr);
+	(void)udata;
+	duk_push_global_object(ctx);
+	duk_push_boolean(ctx, true);
+	duk_put_prop_string(ctx, -2, "protos");
+	duk_put_global_string(ctx, PROTO_MAGIC);
+	dukky_create_prototypes(ctx);
+	duk_push_object(ctx);
+	duk_put_global_string(ctx, THREAD_MAP);
+	return 0;
 }
 
 /* exported interface documented in js.h */
@@ -602,6 +666,7 @@ js_newheap(int timeout, jsheap **heap)
 	*heap = NULL;
 	NSLOG(dukky, DEBUG, "Creating new duktape javascript heap");
 	if (ret == NULL) return NSERROR_NOMEM;
+	ret->timeout_ms = (uint64_t)(timeout > 0 ? timeout : 10) * 1000;
 	ctx = ret->ctx = duk_create_heap(
 		dukky_alloc_function,
 		dukky_realloc_function,
@@ -609,16 +674,15 @@ js_newheap(int timeout, jsheap **heap)
 		ret,
 		NULL);
 	if (ret->ctx == NULL) { free(ret); return NSERROR_NOMEM; }
-	/* Create the prototype stuffs */
-	duk_push_global_object(ctx);
-	duk_push_boolean(ctx, true);
-	duk_put_prop_string(ctx, -2, "protos");
-	duk_put_global_string(ctx, PROTO_MAGIC);
-	/* Create prototypes here */
-	dukky_create_prototypes(ctx);
-	/* Now create the thread map */
-	duk_push_object(ctx);
-	duk_put_global_string(ctx, THREAD_MAP);
+	/* Initialization can also exhaust the bounded heap: catch that error.
+	 */
+	if (duk_safe_call(ctx, dukky_setup_heap, NULL, 0, 1) !=
+	    DUK_EXEC_SUCCESS) {
+		duk_destroy_heap(ctx);
+		free(ret);
+		return NSERROR_NOMEM;
+	}
+	duk_pop(ctx);
 
 	*heap = ret;
 	return NSERROR_OK;
@@ -839,18 +903,18 @@ static void dukky_leave_thread(jsthread *thread)
 
 duk_bool_t dukky_check_timeout(void *udata)
 {
-#define JS_EXEC_TIMEOUT_MS 10000 /* 10 seconds */
 	jsheap *heap = (jsheap *) udata;
 	uint64_t now;
 
-	(void) nsu_getmonotonic_ms(&now);
+	if (nsu_getmonotonic_ms(&now) != NSUERROR_OK)
+		return false;
 
 	/* This function may be called during duk heap construction,
 	 * so only test for execution timeout if we've recorded a
 	 * start time.
 	 */
-	return heap->exec_start_time != 0 &&
-			now > (heap->exec_start_time + JS_EXEC_TIMEOUT_MS);
+	return heap->exec_start_time != 0 && now >= heap->exec_start_time &&
+	       now - heap->exec_start_time >= heap->timeout_ms;
 }
 
 static void dukky_dump_error(duk_context *ctx)
@@ -870,7 +934,25 @@ static void dukky_reset_start_time(duk_context *ctx)
 	jsheap *heap;
 	duk_get_memory_functions(ctx, &funcs);
 	heap = funcs.udata;
-	(void) nsu_getmonotonic_ms(&heap->exec_start_time);
+	if (heap->exec_depth++ == 0)
+		(void)nsu_getmonotonic_ms(&heap->exec_start_time);
+}
+
+static void dukky_end_execution(duk_context *ctx)
+{
+	duk_memory_functions funcs;
+	duk_get_memory_functions(ctx, &funcs);
+	jsheap *heap = funcs.udata;
+	assert(heap->exec_depth != 0);
+	heap->exec_depth--;
+}
+
+static duk_int_t dukky_call_method_timed(duk_context *ctx, duk_size_t argc)
+{
+	dukky_reset_start_time(ctx);
+	duk_int_t result = duk_pcall_method(ctx, argc);
+	dukky_end_execution(ctx);
+	return result;
 }
 
 duk_int_t dukky_pcall(duk_context *ctx, duk_size_t argc, bool reset_timeout)
@@ -885,6 +967,8 @@ duk_int_t dukky_pcall(duk_context *ctx, duk_size_t argc, bool reset_timeout)
 		dukky_dump_error(ctx);
 	}
 
+	if (reset_timeout)
+		dukky_end_execution(ctx);
 	return ret;
 }
 
@@ -945,10 +1029,12 @@ js_exec(jsthread *thread, const uint8_t *txt, size_t txtlen, const char *name)
 	} else {
 		duk_push_string(CTX, "?unknown source?");
 	}
-	if (duk_pcompile_lstring_filename(CTX,
-					  DUK_COMPILE_EVAL,
-					  (const char *)txt,
-					  txtlen) != 0) {
+	if (duk_pcompile_lstring_filename(
+		    CTX,
+		    0, /* Page scripts are global programs, including strict
+			  scripts. */
+		    (const char *)txt,
+		    txtlen) != 0) {
 		NSLOG(dukky, DEBUG, "Failed to compile JavaScript input");
 		goto handle_error;
 	}
@@ -967,6 +1053,7 @@ js_exec(jsthread *thread, const uint8_t *txt, size_t txtlen, const char *name)
 handle_error:
 	dukky_dump_error(CTX);
 out:
+	dukky_end_execution(CTX);
 	dukky_leave_thread(thread);
 	return ret;
 }
@@ -1197,8 +1284,7 @@ static void dukky_generic_event_handler(dom_event *evt, void *pw)
 	/* ... handler node */
 	dukky_push_event(ctx, evt);
 	/* ... handler node event */
-	dukky_reset_start_time(ctx);
-	if (duk_pcall_method(ctx, 1) != 0) {
+	if (dukky_call_method_timed(ctx, 1) != 0) {
 		/* Failed to run the method */
 		/* ... err */
 		NSLOG(dukky, DEBUG,
@@ -1296,8 +1382,7 @@ handle_extras:
 		/* ... copy handler callback node */
 		dukky_push_event(ctx, evt);
 		/* ... copy handler callback node event */
-		dukky_reset_start_time(ctx);
-		if (duk_pcall_method(ctx, 1) != 0) {
+		if (dukky_call_method_timed(ctx, 1) != 0) {
 			/* Failed to run the method */
 			/* ... copy handler err */
 			NSLOG(dukky, DEBUG,
@@ -1463,7 +1548,7 @@ void dukky_shuffle_array(duk_context *ctx, duk_uarridx_t idx)
 		idx++;
 	}
 	/* ... somearr undefined */
-	duk_del_prop_index(ctx, -2, idx + 1);
+	duk_del_prop_index(ctx, -2, idx);
 	duk_pop(ctx);
 }
 
@@ -1645,8 +1730,7 @@ bool js_fire_event(jsthread *thread, const char *type, struct dom_document *doc,
 	/* ... handler Window */
 	dukky_push_event(CTX, evt);
 	/* ... handler Window event */
-	dukky_reset_start_time(CTX);
-	if (duk_pcall_method(CTX, 1) != 0) {
+	if (dukky_call_method_timed(CTX, 1) != 0) {
 		/* Failed to run the handler */
 		/* ... err */
 		NSLOG(dukky, DEBUG,

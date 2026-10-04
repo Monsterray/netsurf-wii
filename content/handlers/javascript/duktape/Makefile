@@ -28,10 +28,16 @@ $(OBJROOT)/duktape/polyfill.js.inc: content/handlers/javascript/duktape/polyfill
 # ensure genbind generates debugging files
 GBFLAGS+=-D
 
-$(OBJROOT)/duktape/binding.h $(OBJROOT)/duktape/Makefile: content/handlers/javascript/duktape/netsurf.bnd $(BINDINGS)
+$(OBJROOT)/duktape/binding.h: content/handlers/javascript/duktape/netsurf.bnd $(BINDINGS) $(wildcard content/handlers/javascript/WebIDL/*.idl)
 	$(Q)$(MKDIR) -p $(OBJROOT)/duktape
 	$(VQ)echo " GENBIND: $<"
 	$(Q)nsgenbind $(GBFLAGS) -I content/handlers/javascript/WebIDL $< $(OBJROOT)/duktape
+	$(Q)touch $(OBJROOT)/duktape/binding.h $(OBJROOT)/duktape/Makefile
+
+# A single generator owns all outputs. Independent recipes for both targets
+# can race under -j, deleting a generated C file while it is being compiled.
+$(OBJROOT)/duktape/Makefile: $(OBJROOT)/duktape/binding.h
+	$(Q)test -f $@ || nsgenbind $(GBFLAGS) -I content/handlers/javascript/WebIDL content/handlers/javascript/duktape/netsurf.bnd $(OBJROOT)/duktape
 
 # create unimplemented report for doxygen
 docs/UnimplementedJavascript.md: content/handlers/javascript/duktape/netsurf.bnd $(BINDINGS)
@@ -53,7 +59,8 @@ endif
 
 S_JAVASCRIPT_BINDING:=$(addprefix $(OBJROOT)/duktape/,$(NSGENBIND_SOURCES))
 
-$(S_JAVASCRIPT_BINDING): $(BINDINGS)
+$(S_JAVASCRIPT_BINDING): $(BINDINGS) $(OBJROOT)/duktape/binding.h
+$(addprefix $(OBJROOT)/,$(subst /,_,$(S_JAVASCRIPT_BINDING:.c=.o))): $(OBJROOT)/duktape/binding.h
 
 S_JAVASCRIPT += content.c duktape/dukky.c duktape/duktape.c
 

@@ -49,8 +49,8 @@ dictionary CustomEventInit : EventInit {
 
 [Exposed=(Window,Worker)]
 interface EventTarget {
-  void addEventListener(DOMString type, EventListener? callback, optional boolean capture = false);
-  void removeEventListener(DOMString type, EventListener? callback, optional boolean capture = false);
+  void addEventListener(DOMString type, EventListener? callback, optional any options);
+  void removeEventListener(DOMString type, EventListener? callback, optional any options);
   boolean dispatchEvent(Event event);
 };
 
