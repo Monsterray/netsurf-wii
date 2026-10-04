@@ -1,2 +1,5 @@
 .gitignore export-ignore
 .gitattributes export-ignore
+
+# Preserve dependency-patch context, including upstream tabs and blank lines.
+wii/patches/*.patch -whitespace

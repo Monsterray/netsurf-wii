@@ -16,7 +16,7 @@ jobs:
   build:
     name: Build NetSurf Wii
     runs-on: ubuntu-24.04
-    container: devkitpro/devkitppc:20260503
+    container: devkitpro/devkitppc:latest
     timeout-minutes: 90
     env:
       DEVKITPRO: /opt/devkitpro
@@ -32,15 +32,25 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            bison flex fonts-dejavu-core gperf libpng-dev perl
+            bison flex fonts-dejavu-core gperf libpng-dev perl python3
           rm -rf /var/lib/apt/lists/*
 
-      - name: Verify pinned Wii toolchain
+      - name: Update official Wii SDK packages
         run: |
-          test -x "$DEVKITPPC/bin/powerpc-eabi-gcc"
+          dkp-pacman -Syu --noconfirm
+          dkp-pacman -S --needed --noconfirm \
+            wii-dev wii-sdl ppc-zlib ppc-libpng ppc-libjpeg-turbo \
+            ppc-libwebp ppc-freetype ppc-libexpat
+
+      - name: Run behavioral regressions
+        run: python3 wii/test-regressions.py
+
+      - name: Verify current Wii toolchain
+        run: |
+          ./wii/check-toolchain.sh
           dkp-pacman -Q \
             wii-sdl ppc-zlib ppc-libpng ppc-libjpeg-turbo \
-            ppc-libwebp ppc-freetype
+            ppc-libwebp ppc-freetype ppc-libexpat
 
       - name: Prepare CI fonts
         run: |
@@ -52,6 +62,15 @@ jobs:
 
       - name: Bootstrap Wii dependencies
         run: ./wii/bootstrap-browser-deps.sh
+
+      - name: Verify Wii blitters
+        run: |
+          ./wii/test-render.sh
+          python3 wii/test-presentation.py
+          python3 wii/test-agent.py
+          python3 wii/test-javascript.py
+          python3 wii/test-sites.py
+          python3 wii/test-request-filter.py
 
       - name: Build Wii package
         env:
