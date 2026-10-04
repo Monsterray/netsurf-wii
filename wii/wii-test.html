@@ -37,6 +37,9 @@ if (wiiSharedFunction() !== 42)
 <p>PDF export and download smoke check.</p>
 <script>
 
+if (navigator.cookieEnabled !== true)
+    throw new Error("cookie capability disagrees with cookie support");
+
 var ancestor = document.createElement("div"),
     target = document.createElement("div"), count = 0, ancestors = 0;
 ancestor.appendChild(target);

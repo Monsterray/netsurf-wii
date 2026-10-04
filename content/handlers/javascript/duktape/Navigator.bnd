@@ -69,7 +69,9 @@ getter Navigator::vendorSub()
 
 getter Navigator::cookieEnabled()
 %{
-	duk_push_boolean(ctx, false);
+	/* The URL database and fetcher accept cookies. Per-cookie policy and
+	 * HttpOnly visibility do not disable the browser's cookie capability. */
+	duk_push_boolean(ctx, true);
 	return 1;
 %}
 

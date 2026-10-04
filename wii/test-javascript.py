@@ -38,6 +38,10 @@ title_push = document[a : document.index("\n}", a) + 2]
 a = document.index("getter Document::title()")
 a = document.index("%{", a) + 2
 title_getter = document[a : document.index("%}", a)]
+navigator = (engine / "Navigator.bnd").read_text()
+a = navigator.index("getter Navigator::cookieEnabled()")
+a = navigator.index("%{", a) + 2
+cookie_enabled_getter = navigator[a : navigator.index("%}", a)]
 with tempfile.TemporaryDirectory() as directory:
     p = Path(directory)
     for name in ["duktape.c", "duktape.h", "duk_config.h"]:
@@ -83,6 +87,12 @@ static duk_ret_t test_title_getter(duk_context *ctx,void *unused) {
         + """
 }
 """
+        + """static duk_ret_t navigator_cookie_enabled(duk_context *ctx) {
+"""
+        + cookie_enabled_getter
+        + """
+}
+"""
         + """typedef enum {ELF_NONE=0,ELF_CAPTURE=1,ELF_PASSIVE=2,ELF_ONCE=4} event_listener_flags;\n"""
         + shuffle
         + event_helpers
@@ -106,6 +116,13 @@ int main(void) {
  heap.exec_start_time=0;
  duk_context *ctx=duk_create_heap(dukky_alloc_function,dukky_realloc_function,dukky_free_function,&heap,NULL);
  assert(ctx);
+ duk_push_object(ctx);
+ duk_push_string(ctx,"cookieEnabled");
+ duk_push_c_function(ctx,navigator_cookie_enabled,0);
+ duk_def_prop(ctx,-3,DUK_DEFPROP_HAVE_GETTER);
+ duk_put_global_string(ctx,"navigator");
+ assert(duk_peval_string(ctx,"navigator.cookieEnabled === true")==0);
+ assert(duk_get_boolean(ctx,-1));duk_pop(ctx);
  fake_title.data="title";fake_title.length=5;
  assert(duk_safe_call(ctx,test_title_getter,NULL,0,1)==0);
  assert(title_refs==0 && strcmp(duk_get_string(ctx,-1),"title")==0);duk_pop(ctx);
@@ -181,5 +198,5 @@ int main(void) {
     )
     subprocess.run([str(p / "test")], check=True, timeout=20)
 print(
-    "PASS: actual Duktape execution, title OOM cleanup, strict page globals, listener identity/removal, timeout, bounded allocation, realloc failure, OOM recovery, teardown"
+    "PASS: actual Duktape execution, cookie capability, title OOM cleanup, strict page globals, listener identity/removal, timeout, bounded allocation, realloc failure, OOM recovery, teardown"
 )
