@@ -111,3 +111,24 @@ revision tracking to avoid hashing unchanged large images for every repeated
 quad, GPU scrolling, and more accelerated primitives. Preserve the software
 renderer as the correctness reference. The implementation and hardware roadmap
 are in [HARDWARE_PLAN.md](HARDWARE_PLAN.md).
+
+## Reviewed-build retest — 4 October 2026
+
+The frozen production build from the upstream review passed another Dolphin
+A/B/A survey at both depths, with JavaScript and native hostname filtering
+enabled. Survey: `gx-profile-kKRxhz`. DOL SHA-256:
+`eb89c1e856cbe2a82336182c5513de7b5534f60742b7ddbf498c2365df7e774b`.
+Matching ELF SHA-256:
+`3fca33d883a1ad33f0c2972d3253f16a8c40849f9f09e8676393fc8b88976b08`.
+All six smoke checks passed and all isolated Dolphin processes closed.
+
+| Depth | Software A/A combined mean (µs) | GX redraw (µs) | GX presentation (µs) | GX combined (µs) | Scene readbacks |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 32 | 69,199 | 14,422 | 53,144 | 67,566 | 0 |
+| 16 | 69,198 | 12,651 | 54,914 | 67,565 | 0 |
+
+Each GX run recorded 105 rectangles, 244 images and 402 glyphs across the full
+smoke. These counters confirm that native paths executed; they do not measure
+GPU utilization. Scene timings exclude the later contract probes, captures,
+printing and download. Vsync dominates this fixture, and one emulator A/B/A
+survey does not establish a physical-Wii or general browsing speedup.

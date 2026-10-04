@@ -164,3 +164,44 @@ hashes and checks are in [UPSTREAM_REVIEW.md](UPSTREAM_REVIEW.md). A physical
 retest of that reviewed artifact could not start because the shared console
 was unavailable under another project's lease; the pending job was canceled.
 The physical results above apply to the earlier hashes recorded here.
+
+## Reviewed-build hardware queue — 4 October 2026
+
+The Wii is responding again. Ten tests were submitted through the shared
+lease dispatcher; at submission, Wii64 was running and earlier Wii64 and
+WiiXplorer jobs were ahead of them. These are queued tests, not hardware passes.
+Each job freezes its package, ELF, watcher, checker and test configuration.
+Normal tests require a verified return to HBC before restoring user settings.
+The queue serializes execution and does not interrupt another application's
+lease. Consult the job's final log and retained captures before changing its
+status below.
+
+| Test | Lease queue job | Local artifact directory | Submission status |
+| --- | --- | --- | --- |
+| GX, 32-bit, JavaScript/filter | `20261004-013314-fcee74` | `hardware-BvpDVu` | Pending |
+| GX, 16-bit, JavaScript/filter, 50 MiB MEM2 | `20261004-013411-d0e169` | `hardware-MjMITm` | Pending |
+| Software, 32-bit, JavaScript/filter | `20261004-013503-3e55d9` | `hardware-HvidfE` | Pending |
+| Software, 16-bit, JavaScript/filter | `20261004-013503-8670de` | `hardware-EYzYQU` | Pending |
+| Legacy software, 32-bit, JavaScript/filter | `20261004-013503-8bb3b2` | `hardware-BKE5I8` | Pending |
+| Legacy software, 16-bit, JavaScript/filter | `20261004-013503-fd8574` | `hardware-Y30XTi` | Pending |
+| Cooperative agent exit | `20261004-013503-cacf9d` | `hardware-7ewHWH` | Pending |
+| Stalled-cleanup watchdog | `20261004-013503-55a6d1` | `hardware-GybDOU` | Pending |
+| All 13 requested URLs, JavaScript/filter | `20261004-013503-84403f` | `hardware-ZRmM1P` | Pending |
+| Intentional crash and 50 MiB MEM2 pressure | `20261004-013545-a5fc22` | `hardware-f8eXfS` | Pending |
+
+The first nine jobs use the reviewed production DOL
+`eb89c1e856cbe2a82336182c5513de7b5534f60742b7ddbf498c2365df7e774b`
+and ELF
+`3fca33d883a1ad33f0c2972d3253f16a8c40849f9f09e8676393fc8b88976b08`.
+The crash job uses a separately built, explicitly armed probe: DOL
+`319e6a5906db710d88ef32a09295b73aa8aad5fdce68e1845a4febf7de862c2c`,
+ELF `e25cb1b4c16aea94d69de1889a31734249e888a9eeb20d4a3d9a747c18df6ac5`.
+The normal probe-free package and reviewed ELF were restored locally after
+freezing this diagnostic job. Both builds use devkitPPC 16.1.0, libogc 3.1.0
+and SDK commit `3b1e9a4e04fbb1afb98f516a2446ef9789877f8f`.
+
+All seven host checks passed again. The reviewed production artifact also
+passed all six Dolphin A/B/A runs; see
+[GX_RENDERER_BENCHMARK.md](GX_RENDERER_BENCHMARK.md). No Dolphin process
+remained. Raw captures, test packages and the per-job hash manifest
+`wii/.deps/runs/reviewed-hardware-20261004.json` remain ignored.
