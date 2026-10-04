@@ -90,8 +90,17 @@ artifact therefore has Dolphin validation; earlier physical-Wii results in
 normal exit and the stalled-cleanup watchdog. No fresh hardware pass is claimed.
 
 On 4 October the console became available to the shared dispatcher. All seven
-host checks and six additional Dolphin A/B/A runs passed. Eleven physical test
-jobs were queued behind earlier Wii64/WiiXplorer work; their identifiers and
-artifact hashes are recorded in
-[HBC_AGENT_VALIDATION.md](HBC_AGENT_VALIDATION.md). Submission is not a hardware
-pass; inspect each final job log before updating the validation claim.
+host checks and six additional Dolphin A/B/A runs passed. Eight physical tests
+also passed: all six renderer/depth combinations, cooperative exit and stalled
+cleanup. The GX 16-bit job allocated 50 MiB of MEM2 simultaneously without
+changing the SDK high bound. All eight returned to HBC with no crash and
+completed settings restoration.
+
+The website survey failed during pre-launch HBC file operations after staging;
+it produced no fresh website results. The console stopped responding, so its
+cleanup could not restore temporary settings. The two unstarted follow-up
+tests were canceled, and guarded settings restoration was queued. Identifiers,
+artifact hashes and the unresolved console/network boundary are recorded in
+[HBC_AGENT_VALIDATION.md](HBC_AGENT_VALIDATION.md). This failure does not establish
+a NetSurf browsing crash, and crash-probe recovery remains untested for the
+reviewed source.

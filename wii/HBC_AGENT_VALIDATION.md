@@ -165,30 +165,31 @@ retest of that reviewed artifact could not start because the shared console
 was unavailable under another project's lease; the pending job was canceled.
 The physical results above apply to the earlier hashes recorded here.
 
-## Reviewed-build hardware queue — 4 October 2026
+## Reviewed-build hardware results — 4 October 2026
 
 The Wii is responding again. Eleven tests were submitted through the shared
 lease dispatcher; at submission, Wii64 was running and earlier Wii64 and
-WiiXplorer jobs were ahead of them. These are queued tests, not hardware passes.
+WiiXplorer jobs were ahead of them. Eight completed successfully; the website
+survey failed before launch, and its two unstarted successors were canceled.
 Each job freezes its package, ELF, watcher, checker and test configuration.
 Normal tests require a verified return to HBC before restoring user settings.
 The queue serializes execution and does not interrupt another application's
-lease. Consult the job's final log and retained captures before changing its
-status below.
+lease. The results below were checked against final job logs, lifecycle records,
+crash reports and cleanup status.
 
-| Test | Lease queue job | Local artifact directory | Submission status |
+| Test | Lease queue job | Local artifact directory | Result |
 | --- | --- | --- | --- |
-| GX, 32-bit, JavaScript/filter | `20261004-013314-fcee74` | `hardware-BvpDVu` | Pending |
-| GX, 16-bit, JavaScript/filter, 50 MiB MEM2 | `20261004-013411-d0e169` | `hardware-MjMITm` | Pending |
-| Software, 32-bit, JavaScript/filter | `20261004-013503-3e55d9` | `hardware-HvidfE` | Pending |
-| Software, 16-bit, JavaScript/filter | `20261004-013503-8670de` | `hardware-EYzYQU` | Pending |
-| Legacy software, 32-bit, JavaScript/filter | `20261004-013503-8bb3b2` | `hardware-BKE5I8` | Pending |
-| Legacy software, 16-bit, JavaScript/filter | `20261004-013503-fd8574` | `hardware-Y30XTi` | Pending |
-| Cooperative agent exit | `20261004-013503-cacf9d` | `hardware-7ewHWH` | Pending |
-| Stalled-cleanup watchdog | `20261004-013503-55a6d1` | `hardware-GybDOU` | Pending |
-| All 13 requested URLs, JavaScript/filter | `20261004-013503-84403f` | `hardware-ZRmM1P` | Pending |
-| Intentional crash and 50 MiB MEM2 pressure | `20261004-013545-a5fc22` | `hardware-f8eXfS` | Pending |
-| Restore probe-free app; repeat GX 32-bit smoke | `20261004-014016-b5136b` | `hardware-FbUA4b` | Pending |
+| GX, 32-bit, JavaScript/filter | `20261004-013314-fcee74` | `hardware-BvpDVu` | PASS |
+| GX, 16-bit, JavaScript/filter, 50 MiB MEM2 | `20261004-013411-d0e169` | `hardware-MjMITm` | PASS |
+| Software, 32-bit, JavaScript/filter | `20261004-013503-3e55d9` | `hardware-HvidfE` | PASS |
+| Software, 16-bit, JavaScript/filter | `20261004-013503-8670de` | `hardware-EYzYQU` | PASS |
+| Legacy software, 32-bit, JavaScript/filter | `20261004-013503-8bb3b2` | `hardware-BKE5I8` | PASS |
+| Legacy software, 16-bit, JavaScript/filter | `20261004-013503-fd8574` | `hardware-Y30XTi` | PASS |
+| Cooperative agent exit | `20261004-013503-cacf9d` | `hardware-7ewHWH` | PASS |
+| Stalled-cleanup watchdog | `20261004-013503-55a6d1` | `hardware-GybDOU` | PASS |
+| All 13 requested URLs, JavaScript/filter | `20261004-013503-84403f` | `hardware-ZRmM1P` | Failed before launch |
+| Intentional crash and 50 MiB MEM2 pressure | `20261004-013545-a5fc22` | `hardware-f8eXfS` | Canceled, unstarted |
+| Restore probe-free app; repeat GX 32-bit smoke | `20261004-014016-b5136b` | `hardware-FbUA4b` | Canceled, unstarted |
 
 The first nine jobs and the final restoration job use the reviewed production DOL
 `eb89c1e856cbe2a82336182c5513de7b5534f60742b7ddbf498c2365df7e774b`
@@ -200,11 +201,47 @@ ELF `e25cb1b4c16aea94d69de1889a31734249e888a9eeb20d4a3d9a747c18df6ac5`.
 The normal probe-free package and reviewed ELF were restored locally after
 freezing this diagnostic job. Both builds use devkitPPC 16.1.0, libogc 3.1.0
 and SDK commit `3b1e9a4e04fbb1afb98f516a2446ef9789877f8f`.
-The final job stages the probe-free package back onto the Wii and repeats the
-normal smoke after crash recovery; its pass remains required.
+The planned final job would restore the probe-free package after crash recovery.
+It and the crash probe were canceled before execution after the staging failure;
+neither probe-build execution nor its subsequent recovery has been validated.
 
 All seven host checks passed again. The reviewed production artifact also
 passed all six Dolphin A/B/A runs; see
 [GX_RENDERER_BENCHMARK.md](GX_RENDERER_BENCHMARK.md). No Dolphin process
 remained. Raw captures, test packages and the per-job hash manifest
 `wii/.deps/runs/reviewed-hardware-20261004.json` remain ignored.
+
+The six renderer runs passed page, JavaScript, hostname filtering, PDF, download,
+cache and cursor checks. Both GX depths passed CPU/GPU agreement. All eight
+successful jobs returned to HBC 1.9.3 on IOS58 revision 6175, recorded no crash,
+and completed settings restoration. The normal/cooperative paths recorded
+`stage=return to HBC`; the watchdog probe recorded `stage=shutdown stall probe`.
+
+The MEM2 probe allocated 52,428,800 bytes simultaneously while retaining the
+1,048,576-byte HBC record allocation. The SDK MEM2 high bound remained
+`0x933a6f40`; no IOS reservation was reclaimed. This proves allocation capacity,
+not that the browser can keep a 50 MiB page alongside all of its working buffers.
+
+The website job synced three files (462 bytes), with 22 package files unchanged.
+Subsequent pre-launch file operations timed out, followed by a failed cleanup
+status request. The browser launch and agent watcher were not reached; there
+are no fresh website captures or usability results. The queue reports the Wii
+as busy or off. This does not distinguish HBC failure from a console or network
+outage, and it does not establish a NetSurf browsing crash.
+
+Failure evidence and original policy backups remain in `hardware-ZRmM1P`.
+The pre-test Choices file was absent. Temporary Choices and `wii-test.cfg`
+may remain on SD because cleanup could not confirm HBC. Restore these under a
+lease after verifying the console and comparing their bytes against this
+job's staged files; do not let a later test adopt them as user configuration.
+Only the two owned unstarted NetSurf jobs were canceled. Other projects' jobs
+and leases were left intact.
+
+Guarded settings recovery is queued as `20261004-022139-f762c7`. It launches
+no application, requires HBC, reads all four relevant settings before changing
+any, and refuses changed content. It removes the temporary Choices/config
+only if they still match the failed job's package and restores policy backups
+only when needed. Restoration is verified by reading back the original bytes
+or confirming absence. At this check the console remains unreachable, so
+recovery has not run and the remaining tests are stopped. The user cannot
+currently inspect the console; its screen and power state are unconfirmed.
