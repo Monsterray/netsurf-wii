@@ -37,5 +37,7 @@ bool pdf_next_page(void);
 void pdf_end(void);
 
 nserror save_pdf(const char *path);
+/** Result of the most recent PDF save, including deferred printer cleanup. */
+nserror pdf_get_save_result(void);
 
 #endif /*NETSURF_PDF_PLOTTERS_H*/

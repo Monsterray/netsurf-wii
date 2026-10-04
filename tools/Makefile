@@ -10,7 +10,7 @@ CLEANS += clean-testament
 .PHONY: testament
 
 testament $(OBJROOT)/testament.h:
-	$(Q)$(PERL) tools/git-testament.pl $(CURDIR) $(OBJROOT)/testament.h
+	$(Q)$(PERL) tools/git-testament.pl "$(CURDIR)" "$(OBJROOT)/testament.h"
 
 
 # lib png build compiler flags

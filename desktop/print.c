@@ -47,6 +47,9 @@
 static float page_content_width, page_content_height;
 static struct hlcache_handle *printed_content;
 static float done_height;
+#ifdef GEKKO
+static int original_width;
+#endif
 
 bool html_redraw_printing = false;
 int html_redraw_printing_border = 0;
@@ -69,8 +72,11 @@ bool print_basic_run(hlcache_handle *content,
 
 	assert(content != NULL && printer != NULL && settings != NULL);
 
-	if (print_set_up(content, printer, settings, NULL))
+	if (!print_set_up(content, printer, settings, NULL)) {
+		free((void *)settings->output);
+		free(settings);
 		return false;
+	}
 
 	while (ret && (done_height < content_get_height(printed_content)) ) {
 		ret = print_draw_next_page(printer, settings);
@@ -83,8 +89,8 @@ bool print_basic_run(hlcache_handle *content,
 
 
 /**
- * The content passed to the function is duplicated with its boxes, font
- * measuring functions are being set.
+ * Prepare the content for printing. Wii borrows it for synchronous export;
+ * other frontends request a clone.
  *
  * \param content The content to be printed
  * \param settings The settings for printing to use
@@ -95,7 +101,15 @@ print_init(struct hlcache_handle *content, struct print_settings *settings)
 {
 	struct hlcache_handle* printed_content;
 
-	hlcache_handle_clone(content, &printed_content);
+#ifdef GEKKO
+	/* HTML cloning is unimplemented upstream. Wii exports synchronously,
+	 * so borrow the page and restore its screen layout before returning. */
+	original_width = content_get_width(content);
+	printed_content = content;
+#else
+	if (hlcache_handle_clone(content, &printed_content) != NSERROR_OK)
+		return NULL;
+#endif
 
 	return printed_content;
 }
@@ -137,7 +151,7 @@ print_apply_settings(hlcache_handle *content, struct print_settings *settings)
 
 /**
  * This function prepares the content to be printed. The current browser content
- * is duplicated and resized, printer initialization is called.
+ * is prepared and resized, then printer initialization is called.
  *
  * \param content The content to be printed
  * \param printer The printer interface for the printer to be used
@@ -154,12 +168,20 @@ bool print_set_up(hlcache_handle *content,
 	if (printed_content == NULL)
 		return false;
 
-	print_apply_settings(printed_content, settings);
+	if (!print_apply_settings(printed_content, settings) ||
+			!printer->print_begin(settings)) {
+#ifdef GEKKO
+		content_reformat(printed_content, false, original_width, 0);
+#else
+		hlcache_handle_release(printed_content);
+#endif
+		printed_content = NULL;
+		return false;
+	}
 
 	if (height)
 		*height = content_get_height(printed_content);
 
-	printer->print_begin(settings);
 
 	done_height = 0;
 
@@ -204,14 +226,21 @@ bool print_draw_next_page(const struct printer *printer,
 	html_redraw_printing = true;
 	html_redraw_printing_border = clip.y1;
 
-	printer->print_next_page();
+	if (!printer->print_next_page())
+		return false;
 	if (!content_redraw(printed_content, &data, &clip, &ctx))
 		return false;
 
-	done_height += page_content_height -
+	/* An oversized unbreakable box must not cause an endless export loop. */
+	{
+		float advance = page_content_height -
 			(html_redraw_printing_top_cropped != INT_MAX ?
 			clip.y1 - html_redraw_printing_top_cropped : 0) /
 			settings->scale;
+		if (advance <= 0)
+			return false;
+		done_height += advance;
+	}
 
 	return true;
 }
@@ -233,7 +262,12 @@ bool print_cleanup(hlcache_handle *content, const struct printer *printer,
 	html_redraw_printing = false;
 
 	if (printed_content) {
+#ifdef GEKKO
+		content_reformat(printed_content, false, original_width, 0);
+#else
 		hlcache_handle_release(printed_content);
+#endif
+		printed_content = NULL;
 	}
 
 	free((void *)settings->output);

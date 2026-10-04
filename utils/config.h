@@ -145,7 +145,7 @@ char *realpath(const char *path, char *resolved_path);
 #endif
 
 #define HAVE_MMAP
-#if (defined(_WIN32) || defined(__riscos__) || defined(__HAIKU__) || defined(__BEOS__) || defined(__amigaos4__) || defined(__AMIGA__) || defined(__MINT__))
+#if (defined(GEKKO) || defined(_WIN32) || defined(__riscos__) || defined(__HAIKU__) || defined(__BEOS__) || defined(__amigaos4__) || defined(__AMIGA__) || defined(__MINT__))
 #undef HAVE_MMAP
 #endif
 
@@ -158,7 +158,7 @@ char *realpath(const char *path, char *resolved_path);
 #define HAVE_DIRFD
 #define HAVE_UNLINKAT
 #define HAVE_FSTATAT
-#if (defined(_WIN32) || defined(__riscos__) || defined(__HAIKU__) || defined(__BEOS__) || defined(__amigaos4__) || defined(__AMIGA__) || defined(__MINT__))
+#if (defined(GEKKO) || defined(_WIN32) || defined(__riscos__) || defined(__HAIKU__) || defined(__BEOS__) || defined(__amigaos4__) || defined(__AMIGA__) || defined(__MINT__))
 #undef HAVE_DIRFD
 #undef HAVE_UNLINKAT
 #undef HAVE_FSTATAT

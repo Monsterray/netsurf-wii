@@ -52,6 +52,9 @@
 
 #include <assert.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <errno.h>
+#include <stdio.h>
 #include <string.h>
 #include <hpdf.h>
 
@@ -94,6 +97,29 @@ static nserror pdf_plot_bitmap_tile(const struct redraw_context *ctx,
 static nserror pdf_plot_path(const struct redraw_context *ctx,
 		const plot_style_t *style, const float *p, unsigned int n,
 		const float transform[6]);
+
+static nserror pdf_save_result = NSERROR_OK;
+static bool pdf_failed;
+struct pdf_cached_image {
+	struct bitmap *bitmap;
+	HPDF_Image image;
+	struct pdf_cached_image *next;
+};
+static struct pdf_cached_image *pdf_images;
+
+static void pdf_free_images(void)
+{
+	while (pdf_images != NULL) {
+		struct pdf_cached_image *next = pdf_images->next;
+		free(pdf_images);
+		pdf_images = next;
+	}
+}
+
+nserror pdf_get_save_result(void)
+{
+	return pdf_save_result;
+}
 
 static HPDF_Image pdf_extract_image(struct bitmap *bitmap);
 
@@ -442,7 +468,7 @@ static nserror pdf_plot_bitmap_tile(const struct redraw_context *ctx,
 	NSLOG(netsurf, INFO, "%d %d %d %d %p 0x%x", x, y, width, height,
 	      bitmap, bg);
 #endif
-	if (width == 0 || height == 0)
+	if (width <= 0 || height <= 0)
 		return NSERROR_OK;
 
 	apply_clip_and_mode(false, NS_TRANSPARENT, NS_TRANSPARENT, 0., DashPattern_eNone);
@@ -467,60 +493,60 @@ static nserror pdf_plot_bitmap_tile(const struct redraw_context *ctx,
 
 static HPDF_Image pdf_extract_image(struct bitmap *bitmap)
 {
-	HPDF_Image image = NULL;
+	struct pdf_cached_image *cached;
+	HPDF_Image image, smask = NULL;
+	unsigned char *pixels, *rgb, *alpha = NULL;
+	int width, height;
+	size_t stride, count, x, y;
+	bool opaque = guit->bitmap->get_opaque(bitmap);
 
-	if (!image) {
-		HPDF_Image smask;
-		unsigned char *img_buffer, *rgb_buffer, *alpha_buffer;
-		int img_width, img_height, img_rowstride;
-		int i, j;
-
-		/*Handle pixmaps*/
-		img_buffer = guit->bitmap->get_buffer(bitmap);
-		img_width = guit->bitmap->get_width(bitmap);
-		img_height = guit->bitmap->get_height(bitmap);
-		img_rowstride = guit->bitmap->get_rowstride(bitmap);
-
-		rgb_buffer = (unsigned char *)malloc(3 * img_width * img_height);
-		alpha_buffer = (unsigned char *)malloc(img_width * img_height);
-		if (rgb_buffer == NULL || alpha_buffer == NULL) {
-			NSLOG(netsurf, INFO,
-			      "Not enough memory to create RGB buffer");
-			free(rgb_buffer);
-			free(alpha_buffer);
-			return NULL;
-		}
-
-		for (i = 0; i < img_height; i++)
-			for (j = 0; j < img_width; j++) {
-				rgb_buffer[((i * img_width) + j) * 3] =
-				  img_buffer[(i * img_rowstride) + (j * 4)];
-
-				rgb_buffer[(((i * img_width) + j) * 3) + 1] =
-				  img_buffer[(i * img_rowstride) + (j * 4) + 1];
-
-				rgb_buffer[(((i * img_width) + j) * 3) + 2] =
-				  img_buffer[(i * img_rowstride) + (j * 4) + 2];
-
-				alpha_buffer[(i * img_width)+j] =
-				  img_buffer[(i * img_rowstride) + (j * 4) + 3];
-			}
-
-		smask = HPDF_LoadRawImageFromMem(pdf_doc, alpha_buffer,
-				img_width, img_height,
-     				HPDF_CS_DEVICE_GRAY, 8);
-
-		image = HPDF_LoadRawImageFromMem(pdf_doc, rgb_buffer,
-				img_width, img_height,
-     				HPDF_CS_DEVICE_RGB, 8);
-
-		if (HPDF_Image_AddSMask(image, smask) != HPDF_OK)
-			image = NULL;
-
-		free(rgb_buffer);
-		free(alpha_buffer);
+	for (cached = pdf_images; cached != NULL; cached = cached->next)
+		if (cached->bitmap == bitmap)
+			return cached->image;
+	width = guit->bitmap->get_width(bitmap);
+	height = guit->bitmap->get_height(bitmap);
+	if (width <= 0 || height <= 0 ||
+			(size_t)width > SIZE_MAX / (size_t)height / 3)
+		return NULL;
+	count = (size_t)width * height;
+	pixels = guit->bitmap->get_buffer(bitmap);
+	stride = guit->bitmap->get_rowstride(bitmap);
+	rgb = malloc(count * 3);
+	if (!opaque)
+		alpha = malloc(count);
+	if (rgb == NULL || (!opaque && alpha == NULL)) {
+		free(rgb);
+		free(alpha);
+		return NULL;
 	}
-
+	for (y = 0; y < (size_t)height; y++) {
+		for (x = 0; x < (size_t)width; x++) {
+			memcpy(rgb + (y * width + x) * 3,
+					pixels + y * stride + x * 4, 3);
+			if (alpha != NULL)
+				alpha[y * width + x] = pixels[y * stride + x * 4 + 3];
+		}
+	}
+	image = HPDF_LoadRawImageFromMem(pdf_doc, rgb, width, height,
+			HPDF_CS_DEVICE_RGB, 8);
+	if (alpha != NULL) {
+		smask = HPDF_LoadRawImageFromMem(pdf_doc, alpha, width, height,
+				HPDF_CS_DEVICE_GRAY, 8);
+		if (image == NULL || smask == NULL ||
+				HPDF_Image_AddSMask(image, smask) != HPDF_OK)
+			image = NULL;
+	}
+	free(rgb);
+	free(alpha);
+	if (image != NULL) {
+		cached = malloc(sizeof(*cached));
+		if (cached != NULL) {
+			cached->bitmap = bitmap;
+			cached->image = image;
+			cached->next = pdf_images;
+			pdf_images = cached;
+		}
+	}
 	return image;
 }
 
@@ -689,6 +715,9 @@ static nserror pdf_plot_path(const struct redraw_context *ctx,
 bool pdf_begin(struct print_settings *print_settings)
 {
 	pdfw_gs_init();
+	pdf_free_images();
+	pdf_failed = false;
+	pdf_save_result = NSERROR_SAVE_FAILED;
 
 	if (pdf_doc != NULL)
 		HPDF_Free(pdf_doc);
@@ -787,7 +816,7 @@ void pdf_end(void)
 		guit->misc->pdf_password(&owner_pass, &user_pass,
 				(void *)settings->output);
 	else
-		save_pdf(settings->output);
+		pdf_save_result = save_pdf(settings->output);
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, "pdf_end finishes");
 #endif
@@ -805,15 +834,52 @@ nserror save_pdf(const char *path)
 		free(user_pass);
 	}
 
-	if (path != NULL) {
-		if (HPDF_SaveToFile(pdf_doc, path) != HPDF_OK) {
-			remove(path);
-			res = NSERROR_SAVE_FAILED;
+	if (path != NULL && !pdf_failed) {
+		char *temporary = malloc(strlen(path) + sizeof(".tmp"));
+		if (temporary == NULL) {
+			res = NSERROR_NOMEM;
+		} else {
+			sprintf(temporary, "%s.tmp", path);
+			if (HPDF_SaveToFile(pdf_doc, temporary) != HPDF_OK) {
+				res = NSERROR_SAVE_FAILED;
+			} else if (rename(temporary, path) != 0) {
+#ifdef GEKKO
+				/* libfat refuses to overwrite. Keep the previous export
+				 * in a backup until the new file has been installed. */
+				char *backup = malloc(strlen(path) + sizeof(".bak"));
+				res = NSERROR_SAVE_FAILED;
+				if (backup != NULL) {
+					FILE *existing;
+					sprintf(backup, "%s.bak", path);
+					existing = fopen(backup, "rb");
+					if (existing != NULL) {
+						fclose(existing);
+					} else if (errno == ENOENT && rename(path, backup) == 0) {
+						if (rename(temporary, path) == 0) {
+							remove(backup);
+							res = NSERROR_OK;
+						} else {
+							rename(backup, path);
+						}
+					}
+					free(backup);
+				}
+#else
+				res = NSERROR_SAVE_FAILED;
+#endif
+			}
+			if (res != NSERROR_OK)
+				remove(temporary);
+			free(temporary);
 		}
+	} else {
+		res = NSERROR_SAVE_FAILED;
 	}
 
+	pdf_free_images();
 	HPDF_Free(pdf_doc);
 	pdf_doc = NULL;
+	pdf_save_result = res;
 
 	return res;
 }
@@ -828,6 +894,7 @@ nserror save_pdf(const char *path)
 static void error_handler(HPDF_STATUS error_no, HPDF_STATUS detail_no,
 		void *user_data)
 {
+	pdf_failed = true;
 	NSLOG(netsurf, INFO, "ERROR:\n\terror_no=%x\n\tdetail_no=%d\n",
 	      (HPDF_UINT)error_no, (HPDF_UINT)detail_no);
 #ifdef PDF_DEBUG
@@ -993,6 +1060,10 @@ void pdfw_gs_dash(HPDF_Page page, DashPattern_e dash)
 
 #else
 nserror save_pdf(const char *path)
+{
+	return NSERROR_NOT_IMPLEMENTED;
+}
+nserror pdf_get_save_result(void)
 {
 	return NSERROR_NOT_IMPLEMENTED;
 }
