@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Web platform capabilities</title>
+<script type="module">
+window.moduleExecuted = true;
+if (typeof report === "function") report();
+</script>
+</head>
+<body>
+<h1>Web platform capabilities</h1>
+<p>Constructor presence does not establish working behavior.</p>
+<ul id="features"></ul>
+<script>
+function parses(source)
+{
+    try {
+        new Function(source);
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+function works(test)
+{
+    try {
+        return test() === true;
+    } catch (error) {
+        return false;
+    }
+}
+function report()
+{
+    var features = [
+        ["Cookies enabled", navigator.cookieEnabled === true],
+        ["Module script executed", window.moduleExecuted === true],
+        ["Arrow function syntax", parses("return (() => 1)();")],
+        ["Async function syntax", parses("async function task() { return 1; }")],
+        ["Promise", typeof Promise === "function"],
+        ["Worker constructor exposed (execution untested)", typeof Worker === "function"],
+        ["fetch", typeof fetch === "function"],
+        ["URL relative resolution", works(function() {
+            return new URL("../", "https://example.org/path/page").href === "https://example.org/";
+        })],
+        ["URLSearchParams lookup", works(function() {
+            return new URLSearchParams("q=test").get("q") === "test";
+        })],
+        ["Blob byte size", works(function() {
+            return new Blob(["test"]).size === 4;
+        })]
+    ];
+    var list = document.getElementById("features");
+    while (list.firstChild) list.removeChild(list.firstChild);
+    for (var index = 0; index < features.length; index++) {
+        var item = document.createElement("li");
+        item.appendChild(document.createTextNode(
+            features[index][0] + ": " +
+            (features[index][1] ? "available" : "unavailable")));
+        list.appendChild(item);
+    }
+}
+report();
+</script>
+</body>
+</html>

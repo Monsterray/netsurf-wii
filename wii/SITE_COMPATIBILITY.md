@@ -233,3 +233,9 @@ Matching ELF SHA-256:
 The earlier pre-launch HBC staging failure and its settings recovery are
 retained in [HBC_AGENT_VALIDATION.md](HBC_AGENT_VALIDATION.md); this successful
 retry does not establish the cause of that failure.
+
+The subsequent focused Startpage investigation identified Anubis verification
+and corrected the browser's false cookie-capability flag. Homepage and direct
+search still require unsupported module/async and web-platform behavior. See
+[STARTPAGE_COMPATIBILITY.md](STARTPAGE_COMPATIBILITY.md) for the tested change,
+actual feature results and modern-engine feasibility probe.

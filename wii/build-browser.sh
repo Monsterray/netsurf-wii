@@ -104,7 +104,7 @@ if ! grep -Fq '<coder>quatric</coder>' "$SCRIPT_DIR/meta.xml"; then
 fi
 
 cp "$SCRIPT_DIR/meta.xml" "$SCRIPT_DIR/icon.png" "$SCRIPT_DIR/cacert.pem" \
-	"$SCRIPT_DIR/js-smoke.html" "$SCRIPT_DIR/wii-test.html" \
+	"$SCRIPT_DIR/js-smoke.html" "$SCRIPT_DIR/web-features.html" "$SCRIPT_DIR/wii-test.html" \
 	"$SCRIPT_DIR/wii-test.png" "$SCRIPT_DIR/wii-test.bin" "$PACKAGE_DIR/"
 cp "$SCRIPT_DIR/adblock-hosts.txt" "$SCRIPT_DIR/adblock-allow.txt" "$PACKAGE_DIR/"
 
