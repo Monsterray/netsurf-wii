@@ -242,6 +242,8 @@ no application, requires HBC, reads all four relevant settings before changing
 any, and refuses changed content. It removes the temporary Choices/config
 only if they still match the failed job's package and restores policy backups
 only when needed. Restoration is verified by reading back the original bytes
-or confirming absence. At this check the console remains unreachable, so
-recovery has not run and the remaining tests are stopped. The user cannot
-currently inspect the console; its screen and power state are unconfirmed.
+or confirming absence. Recovery has not run and the remaining tests are stopped.
+The console was initially unreachable during this check; a later queue status
+showed WiiXplorer running under its own lease. The cause of the earlier timeout
+remains unconfirmed. The user cannot currently inspect the screen, and the
+restoration job waits behind other projects' queued work.
