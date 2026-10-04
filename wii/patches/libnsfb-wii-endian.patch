@@ -1,3 +1,125 @@
+diff --git a/include/libnsfb.h b/include/libnsfb.h
+index 674df65..6c89ae1 100644
+--- a/include/libnsfb.h
++++ b/include/libnsfb.h
+@@ -59,6 +59,15 @@ enum nsfb_format_e {
+     NSFB_FMT_I1, /* black and white */
+ };
+ 
++#ifdef GEKKO
++/* Optional presentation plugin: pixels stay owned by SDL/libnsfb. Callbacks
++ * run on the browser thread; the presenter owns synchronization with GX. */
++void nsfb_wii_set_presenter(nsfb_t *nsfb,
++        void (*damage)(void *, const nsfb_bbox_t *),
++        void (*cursor)(void *, const uint32_t *, int, int, int, int, int),
++        void *context);
++#endif
++
+ /** Callback for surface enumeration
+  *
+  * @param The context you gave for the enumeration
+@@ -167,6 +176,15 @@ int nsfb_get_buffer(nsfb_t *nsfb, uint8_t **ptr, int *linelen);
+ bool nsfb_dump(nsfb_t *nsfb, int fd);
+ 
+ 
++
++#ifdef GEKKO
++/* Synchronize GPU contents before CPU access; writing invalidates the shadow. */
++/* Native drawing claim. Caller must use plot APIs or acquire the CPU buffer
++ * afresh with nsfb_get_buffer before raw access; it must not use a retained
++ * CPU pointer. Ordinary nsfb_claim retains its CPU synchronization contract. */
++int nsfb_wii_claim_native(nsfb_t *, nsfb_bbox_t *);
++void nsfb_wii_set_sync(nsfb_t *, void (*)(void *, const nsfb_bbox_t *, bool));
++#endif
+ #endif
+ 
+ /*
+diff --git a/include/libnsfb_plot.h b/include/libnsfb_plot.h
+index a563e2c..367cd19 100644
+--- a/include/libnsfb_plot.h
++++ b/include/libnsfb_plot.h
+@@ -170,4 +170,22 @@ bool nsfb_plot_glyph1(nsfb_t *nsfb, nsfb_bbox_t *loc, const uint8_t *pixel, int
+ /* read rectangle into buffer */
+ bool nsfb_plot_readrect(nsfb_t *nsfb, nsfb_bbox_t *rect, nsfb_colour_t *buffer);
+ 
++#ifdef GEKKO
++/** Tiled bitmap whose source is raw decoder RGBA bytes. */
++bool nsfb_plot_bitmap_tiles_rgba(nsfb_t *nsfb, const nsfb_bbox_t *loc,
++        int tiles_x, int tiles_y, const nsfb_colour_t *pixel,
++        int bmp_width, int bmp_height, int bmp_stride, bool alpha);
++#endif
++
++#ifdef GEKKO
++/* Optional native drawing. False requests the normal CPU plotter. */
++struct nsfb_wii_acceleration {
++    bool (*line)(nsfb_t *, const nsfb_bbox_t *, const nsfb_plot_pen_t *);
++    bool (*fill)(nsfb_t *, const nsfb_bbox_t *, uint32_t);
++    bool (*bitmap)(nsfb_t *, const nsfb_bbox_t *, const uint32_t *, int, int, int, bool);
++    bool (*rectangle)(nsfb_t *, const nsfb_bbox_t *, int, uint32_t, bool, bool);
++};
++void nsfb_wii_set_acceleration(nsfb_t *, const struct nsfb_wii_acceleration *);
++#endif
++
+ #endif /* _LIBNSFB_PLOT_H */
+diff --git a/src/libnsfb.c b/src/libnsfb.c
+index 4d652c1..8bf6307 100644
+--- a/src/libnsfb.c
++++ b/src/libnsfb.c
+@@ -81,6 +81,9 @@ nsfb_event(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+ int 
+ nsfb_claim(nsfb_t *nsfb, nsfb_bbox_t *box)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, box, true);
++#endif
+     return nsfb->surface_rtns->claim(nsfb, box);
+ }
+ 
+@@ -143,6 +146,9 @@ nsfb_get_geometry(nsfb_t *nsfb, int *width, int *height, enum nsfb_format_e *for
+ int 
+ nsfb_get_buffer(nsfb_t *nsfb, uint8_t **ptr, int *linelen) 
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
+     if (ptr != NULL) {
+ 	*ptr = nsfb->ptr;
+     }
+@@ -160,3 +166,15 @@ nsfb_get_buffer(nsfb_t *nsfb, uint8_t **ptr, int *linelen)
+  * End:
+  */
+ 
++
++#ifdef GEKKO
++void nsfb_wii_set_sync(nsfb_t *nsfb, void (*sync)(void *, const nsfb_bbox_t *, bool))
++{
++    nsfb->wii_sync = sync;
++}
++#endif
++
++#ifdef GEKKO
++int nsfb_wii_claim_native(nsfb_t *nsfb, nsfb_bbox_t *box)
++{ return nsfb->surface_rtns->claim(nsfb, box); }
++#endif
+diff --git a/src/nsfb.h b/src/nsfb.h
+index 73f6678..cd1e743 100644
+--- a/src/nsfb.h
++++ b/src/nsfb.h
+@@ -27,6 +27,14 @@ struct nsfb_s {
+     int bpp; /**< Bits per pixel - distinct from format */
+ 
+     uint8_t *ptr; /**< Base of video memory. */
++#ifdef GEKKO
++    const struct nsfb_wii_acceleration *wii_acceleration;
++    void (*wii_sync)(void *, const nsfb_bbox_t *, bool);
++    void (*wii_damage)(void *, const nsfb_bbox_t *);
++    void (*wii_cursor)(void *, const uint32_t *, int, int, int, int, int);
++    void *wii_presenter;
++    bool bitmap_src_rgba; /**< Current blit source contains decoder RGBA bytes. */
++#endif
+     int linelen; /**< length of a video line. */
+ 
+     struct nsfb_palette_s *palette; /**< palette for index modes */
 diff --git a/src/plot.h b/src/plot.h
 index db60ea9..d6968e1 100644
 --- a/src/plot.h
@@ -104,7 +226,7 @@ index 28e6673..04a8cde 100644
  /**
   * convert a 32bpp big endian pixel value to netsurf colour
 diff --git a/src/plot/api.c b/src/plot/api.c
-index 1746d2e..5daa295 100644
+index 1746d2e..4d262e0 100644
 --- a/src/plot/api.c
 +++ b/src/plot/api.c
 @@ -1,6 +1,7 @@
@@ -115,50 +237,128 @@ index 1746d2e..5daa295 100644
  
  #include "libnsfb.h"
  #include "libnsfb_plot.h"
-@@ -126,18 +127,62 @@ bool nsfb_plot_ellipse_fill(nsfb_t *nsfb, nsfb_bbox_t *ellipse, nsfb_colour_t c)
+@@ -30,6 +31,10 @@ bool nsfb_plot_get_clip(nsfb_t *nsfb, nsfb_bbox_t *clip)
+  */
+ bool nsfb_plot_clg(nsfb_t *nsfb, nsfb_colour_t c)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+     return nsfb->plotter_fns->clg(nsfb, c);
+ }
+ 
+@@ -46,6 +51,12 @@ nsfb_plot_rectangle(nsfb_t *nsfb,
+                     bool dotted, 
+                     bool dashed)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_acceleration && nsfb->wii_acceleration->rectangle &&
++            nsfb->wii_acceleration->rectangle(nsfb, rect, line_width, c, dotted, dashed)) return true;
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+     return nsfb->plotter_fns->rectangle(nsfb, rect, line_width, c, dotted, dashed);
+ 
+ }
+@@ -56,6 +67,12 @@ nsfb_plot_rectangle(nsfb_t *nsfb,
+  */
+ bool nsfb_plot_rectangle_fill(nsfb_t *nsfb, nsfb_bbox_t *rect, nsfb_colour_t c)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_acceleration && nsfb->wii_acceleration->fill &&
++            nsfb->wii_acceleration->fill(nsfb, rect, c)) return true;
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, rect, true);
++#endif
++
+     return nsfb->plotter_fns->fill(nsfb, rect, c);
+ }
+ 
+@@ -66,6 +83,12 @@ bool nsfb_plot_rectangle_fill(nsfb_t *nsfb, nsfb_bbox_t *rect, nsfb_colour_t c)
+  */
+ bool nsfb_plot_line(nsfb_t *nsfb, nsfb_bbox_t *line, nsfb_plot_pen_t *pen)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_acceleration && nsfb->wii_acceleration->line &&
++            nsfb->wii_acceleration->line(nsfb, line, pen)) return true;
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+ 	return nsfb->plotter_fns->line(nsfb, 1, line, pen);
+ }
+ 
+@@ -76,11 +99,19 @@ bool nsfb_plot_line(nsfb_t *nsfb, nsfb_bbox_t *line, nsfb_plot_pen_t *pen)
+  */
+ bool nsfb_plot_lines(nsfb_t *nsfb, int linec, nsfb_bbox_t *line, nsfb_plot_pen_t *pen)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+ 	return nsfb->plotter_fns->line(nsfb, linec, line, pen);
+ }
+ 
+ bool nsfb_plot_polylines(nsfb_t *nsfb, int pointc, const nsfb_point_t *points, nsfb_plot_pen_t *pen)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+ 	return nsfb->plotter_fns->polylines(nsfb, pointc, points, pen);
+ }
+ 
+@@ -94,6 +125,10 @@ bool nsfb_plot_polylines(nsfb_t *nsfb, int pointc, const nsfb_point_t *points, n
+  */
+ bool nsfb_plot_polygon(nsfb_t *nsfb, const int *p, unsigned int n, nsfb_colour_t fill)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+     return nsfb->plotter_fns->polygon(nsfb, p, n, fill);
+ }
+ 
+@@ -104,6 +139,10 @@ bool nsfb_plot_polygon(nsfb_t *nsfb, const int *p, unsigned int n, nsfb_colour_t
+  */
+ bool nsfb_plot_arc(nsfb_t *nsfb, int x, int y, int radius, int angle1, int angle2, nsfb_colour_t c)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+     return nsfb->plotter_fns->arc(nsfb, x, y, radius, angle1, angle2, c);
+ }
+ 
+@@ -113,16 +152,28 @@ bool nsfb_plot_arc(nsfb_t *nsfb, int x, int y, int radius, int angle1, int angle
+  */
+ bool nsfb_plot_point(nsfb_t *nsfb, int x, int y, nsfb_colour_t c)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+     return nsfb->plotter_fns->point(nsfb, x, y, c);
+ }
+ 
+ bool nsfb_plot_ellipse(nsfb_t *nsfb, nsfb_bbox_t *ellipse, nsfb_colour_t c)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+     return nsfb->plotter_fns->ellipse(nsfb, ellipse, c);
+ }
+ 
+ bool nsfb_plot_ellipse_fill(nsfb_t *nsfb, nsfb_bbox_t *ellipse, nsfb_colour_t c)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
      return nsfb->plotter_fns->ellipse_fill(nsfb, ellipse, c);
  }
  
-+#ifdef GEKKO
-+/* Decoded-image RAM surfaces (NSFB_FMT_XBGR8888/ABGR8888) hold raw R,G,B,A
-+ * bytes written directly by image decoders, independent of that format's
-+ * own pixel_to_colour(). The fast path below reinterprets those bytes as
-+ * an nsfb_colour_t array and hands them straight to the destination
-+ * surface's own colour_to_pixel(), skipping any conversion -- which is
-+ * only valid because on little endian a native load of bytes R,G,B,A
-+ * happens to equal this library's canonical 0xAABBGGRR already. On big
-+ * endian Wii hardware the same load instead produces 0xRRGGBBAA, so every
-+ * channel lands in the wrong bit position downstream. Build an explicit,
-+ * byte-order-independent canonical copy first. */
-+static nsfb_colour_t *
-+wii_bitmap_to_colour(nsfb_t *srcfb)
-+{
-+    int total = srcfb->width * srcfb->height;
-+    int i;
-+    const unsigned char *srcbytes = (const unsigned char *)srcfb->ptr;
-+    nsfb_colour_t *out;
-+
-+    if (total <= 0)
-+        return NULL;
-+
-+    out = malloc((size_t)total * sizeof(nsfb_colour_t));
-+    if (out == NULL)
-+        return NULL;
-+
-+    for (i = 0; i < total; i++) {
-+        const unsigned char *p = srcbytes + ((size_t)i * 4);
-+        out[i] = ((nsfb_colour_t)p[3] << 24) |
-+                 ((nsfb_colour_t)p[2] << 16) |
-+                 ((nsfb_colour_t)p[1] << 8)  |
-+                  (nsfb_colour_t)p[0];
-+    }
-+
-+    return out;
-+}
-+#endif
-+
- /* copy an area of surface from one location to another.
-  *
+@@ -131,13 +182,23 @@ bool nsfb_plot_ellipse_fill(nsfb_t *nsfb, nsfb_bbox_t *ellipse, nsfb_colour_t c)
   * @warning This implementation is woefully incomplete!
   */
  bool
@@ -170,18 +370,22 @@ index 1746d2e..5daa295 100644
 +	       nsfb_t *dstfb,
  	       nsfb_bbox_t *dstbox)
  {
++#ifdef GEKKO
++    if (srcfb->wii_sync) srcfb->wii_sync(srcfb->wii_presenter, srcbox, false);
++    if (dstfb->wii_sync) dstfb->wii_sync(dstfb->wii_presenter, dstbox, true);
++#endif
++
      bool trans = false;
      nsfb_colour_t srccol;
-+    const nsfb_colour_t *blit_src;
 +#ifdef GEKKO
-+    nsfb_colour_t *converted = NULL;
++    bool previous_rgba = dstfb->bitmap_src_rgba;
 +    bool src_is_decoded_bitmap = (srcfb->format == NSFB_FMT_XBGR8888) ||
 +            (srcfb->format == NSFB_FMT_ABGR8888);
 +#endif
  
      if (srcfb == dstfb) {
  	return dstfb->plotter_fns->copy(srcfb, srcbox, dstbox);
-@@ -148,19 +193,46 @@ nsfb_plot_copy(nsfb_t *srcfb,
+@@ -148,28 +209,59 @@ nsfb_plot_copy(nsfb_t *srcfb,
      }
  
      if ((srcfb->width == 1) && (srcfb->height == 1)) {
@@ -195,6 +399,9 @@ index 1746d2e..5daa295 100644
  	srccol = *(nsfb_colour_t *)(void *)(srcfb->ptr);
 -	
 +
++	if (!trans)
++            srccol |= 0xff000000;
++
  	/* check for completely transparent */
  	if ((srccol & 0xff000000) == 0)
 -	    return true; 
@@ -207,51 +414,260 @@ index 1746d2e..5daa295 100644
  
 -    return dstfb->plotter_fns->bitmap(dstfb, dstbox, (const nsfb_colour_t *)(void *)srcfb->ptr, srcfb->width, srcfb->height, (srcfb->linelen * 8) / srcfb->bpp, trans);
 -    
-+    blit_src = (const nsfb_colour_t *)(void *)srcfb->ptr;
 +#ifdef GEKKO
-+    if (src_is_decoded_bitmap) {
-+        converted = wii_bitmap_to_colour(srcfb);
-+        if (converted != NULL)
-+            blit_src = converted;
-+    }
++    dstfb->bitmap_src_rgba = src_is_decoded_bitmap;
 +#endif
-+
 +    {
-+        bool ret = dstfb->plotter_fns->bitmap(dstfb, dstbox, blit_src,
++        bool ret = dstfb->plotter_fns->bitmap(dstfb, dstbox,
++                (const nsfb_colour_t *)(void *)srcfb->ptr,
 +                srcfb->width, srcfb->height,
++                (srcfb->linelen * 8) / srcfb->bpp, trans);
 +#ifdef GEKKO
-+                (converted != NULL) ? srcfb->width :
-+#endif
-+                (srcfb->linelen * 8) / srcfb->bpp,
-+                trans);
-+#ifdef GEKKO
-+        free(converted);
++        dstfb->bitmap_src_rgba = previous_rgba;
 +#endif
 +        return ret;
 +    }
  }
  
  bool nsfb_plot_bitmap(nsfb_t *nsfb, const nsfb_bbox_t *loc, const nsfb_colour_t *pixel, int bmp_width, int bmp_height, int bmp_stride, bool alpha)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_acceleration && nsfb->wii_acceleration->bitmap &&
++            nsfb->wii_acceleration->bitmap(nsfb, loc, pixel, bmp_width, bmp_height, bmp_stride, alpha)) return true;
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, loc, true);
++#endif
++
+     return nsfb->plotter_fns->bitmap(nsfb, loc, pixel, bmp_width, bmp_height, bmp_stride, alpha);
+ }
+ 
+ bool nsfb_plot_bitmap_tiles(nsfb_t *nsfb, const nsfb_bbox_t *loc, int tiles_x, int tiles_y, const nsfb_colour_t *pixel, int bmp_width, int bmp_height, int bmp_stride, bool alpha)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+     return nsfb->plotter_fns->bitmap_tiles(nsfb, loc, tiles_x, tiles_y, pixel, bmp_width, bmp_height, bmp_stride, alpha);
+ }
+ 
+@@ -177,6 +269,10 @@ bool nsfb_plot_bitmap_tiles(nsfb_t *nsfb, const nsfb_bbox_t *loc, int tiles_x, i
+  */
+ bool nsfb_plot_glyph8(nsfb_t *nsfb, nsfb_bbox_t *loc, const uint8_t *pixel, int pitch, nsfb_colour_t c)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, loc, true);
++#endif
++
+     return nsfb->plotter_fns->glyph8(nsfb, loc, pixel, pitch, c);
+ }
+ 
+@@ -185,28 +281,48 @@ bool nsfb_plot_glyph8(nsfb_t *nsfb, nsfb_bbox_t *loc, const uint8_t *pixel, int
+  */
+ bool nsfb_plot_glyph1(nsfb_t *nsfb, nsfb_bbox_t *loc, const uint8_t *pixel, int pitch, nsfb_colour_t c)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, loc, true);
++#endif
++
+     return nsfb->plotter_fns->glyph1(nsfb, loc, pixel, pitch, c);
+ }
+ 
+ /* read a rectangle from screen into buffer */
+ bool nsfb_plot_readrect(nsfb_t *nsfb, nsfb_bbox_t *rect, nsfb_colour_t *buffer)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, rect, false);
++#endif
++
+     return nsfb->plotter_fns->readrect(nsfb, rect, buffer);
+ }
+ 
+ 
+ bool nsfb_plot_cubic_bezier(nsfb_t *nsfb, nsfb_bbox_t *curve, nsfb_point_t *ctrla, nsfb_point_t *ctrlb, nsfb_plot_pen_t *pen)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+     return nsfb->plotter_fns->cubic(nsfb, curve, ctrla, ctrlb, pen);
+ }
+ 
+ bool nsfb_plot_quadratic_bezier(nsfb_t *nsfb, nsfb_bbox_t *curve, nsfb_point_t *ctrla, nsfb_plot_pen_t *pen)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+     return nsfb->plotter_fns->quadratic(nsfb, curve, ctrla, pen);
+ }
+ 
+ bool nsfb_plot_path(nsfb_t *nsfb, int pathc, nsfb_plot_pathop_t *pathop, nsfb_plot_pen_t *pen)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++#endif
++
+     return nsfb->plotter_fns->path(nsfb, pathc, pathop, pen);
+ }
+ 
+@@ -216,3 +332,25 @@ bool nsfb_plot_path(nsfb_t *nsfb, int pathc, nsfb_plot_pathop_t *pathop, nsfb_pl
+  *  tab-width: 8
+  * End:
+  */
++
++#ifdef GEKKO
++bool nsfb_plot_bitmap_tiles_rgba(nsfb_t *nsfb, const nsfb_bbox_t *loc,
++        int tiles_x, int tiles_y, const nsfb_colour_t *pixel,
++        int bmp_width, int bmp_height, int bmp_stride, bool alpha)
++{
++    if (nsfb->wii_sync) nsfb->wii_sync(nsfb->wii_presenter, NULL, true);
++
++    bool previous = nsfb->bitmap_src_rgba;
++    bool ret;
++    nsfb->bitmap_src_rgba = true;
++    ret = nsfb->plotter_fns->bitmap_tiles(nsfb, loc, tiles_x, tiles_y,
++            pixel, bmp_width, bmp_height, bmp_stride, alpha);
++    nsfb->bitmap_src_rgba = previous;
++    return ret;
++}
++#endif
++
++#ifdef GEKKO
++void nsfb_wii_set_acceleration(nsfb_t *nsfb, const struct nsfb_wii_acceleration *acceleration)
++{ nsfb->wii_acceleration = acceleration; }
++#endif
+diff --git a/src/plot/common.c b/src/plot/common.c
+index 5f55686..c8cd119 100644
+--- a/src/plot/common.c
++++ b/src/plot/common.c
+@@ -20,6 +20,20 @@
+ 
+ #define SIGN(x)  ((x<0) ?  -1  :  ((x>0) ? 1 : 0))
+ 
++/* Read only pixels selected by clipping/scaling; no full-image scratch copy. */
++static inline nsfb_colour_t bitmap_source_colour(nsfb_t *nsfb,
++        const nsfb_colour_t *pixel, int offset)
++{
++#ifdef GEKKO
++    if (nsfb->bitmap_src_rgba) {
++        const unsigned char *p = (const unsigned char *)(pixel + offset);
++        return ((nsfb_colour_t)p[3] << 24) | ((nsfb_colour_t)p[2] << 16) |
++                ((nsfb_colour_t)p[1] << 8) | p[0];
++    }
++#endif
++    return pixel[offset];
++}
++
+ static bool
+ line(nsfb_t *nsfb, int linec, nsfb_bbox_t *line, nsfb_plot_pen_t *pen)
+ {
+@@ -315,7 +329,7 @@ static bool bitmap_scaled(nsfb_t *nsfb, const nsfb_bbox_t *loc,
+ 			for (xloop = 0; xloop < rwidth; xloop++) {
+ 				/* looping through render area horizontally */
+ 				/* get value of source pixel in question */
+-				abpixel = pixel[yoff + xoff];
++				abpixel = bitmap_source_colour(nsfb, pixel, yoff + xoff);
+ 				if ((abpixel & 0xFF000000) != 0) {
+ 					/* pixel is not transparent; have to
+ 					 * plot something */
+@@ -359,7 +373,7 @@ static bool bitmap_scaled(nsfb_t *nsfb, const nsfb_bbox_t *loc,
+ 			for (xloop = 0; xloop < rwidth; xloop++) {
+ 				/* looping through render area horizontally */
+ 				/* get value of source pixel in question */
+-				abpixel = pixel[yoff + xoff];
++				abpixel = bitmap_source_colour(nsfb, pixel, yoff + xoff);
+ 				/* plot pixel */
+ 				*(pvideo + xloop) = colour_to_pixel(
+ 						nsfb, abpixel);
+@@ -450,7 +464,7 @@ bitmap(nsfb_t *nsfb,
+         if (alpha) {
+                 for (yloop = yoff; yloop < height; yloop += bmp_stride) {
+                         for (xloop = 0; xloop < width; xloop++) {
+-                                abpixel = pixel[yloop + xloop + xoff];
++                                abpixel = bitmap_source_colour(nsfb, pixel, yloop + xloop + xoff);
+                                 if ((abpixel & 0xFF000000) != 0) {
+                                         /* pixel is not transparent; have to
+                                          * plot something */
+@@ -475,7 +489,7 @@ bitmap(nsfb_t *nsfb,
+         } else {
+                 for (yloop = yoff; yloop < height; yloop += bmp_stride) {
+                         for (xloop = 0; xloop < width; xloop++) {
+-                                abpixel = pixel[yloop + xloop + xoff];
++                                abpixel = bitmap_source_colour(nsfb, pixel, yloop + xloop + xoff);
+                                 *(pvideo + xloop) = colour_to_pixel(
+                                                 nsfb, abpixel);
+                         }
+@@ -542,7 +556,7 @@ bitmap_tiles_x(nsfb_t *nsfb,
+ 			pvideo_pos = pvideo;
+ 			for (t = 0; t < 1; t++) {
+ 				for (xloop = xoff; xloop < width; xloop++) {
+-					abpixel = pixel[yoff + xloop];
++					abpixel = bitmap_source_colour(nsfb, pixel, yoff + xloop);
+ 					if ((abpixel & 0xFF000000) != 0) {
+ 						/* pixel is not transparent;
+ 						 * have to plot something */
+@@ -567,7 +581,7 @@ bitmap_tiles_x(nsfb_t *nsfb,
+ 			pvideo_pos += width - xoff;
+ 			for (; t < tiles_x - 1; t++) {
+ 				for (xloop = 0; xloop < width; xloop++) {
+-					abpixel = pixel[yoff + xloop];
++					abpixel = bitmap_source_colour(nsfb, pixel, yoff + xloop);
+ 					if ((abpixel & 0xFF000000) != 0) {
+ 						/* pixel is not transparent;
+ 						 * have to plot something */
+@@ -592,7 +606,7 @@ bitmap_tiles_x(nsfb_t *nsfb,
+ 			}
+ 			for (; t < tiles_x; t++) {
+ 				for (xloop = 0; xloop < xlim; xloop++) {
+-					abpixel = pixel[yoff + xloop];
++					abpixel = bitmap_source_colour(nsfb, pixel, yoff + xloop);
+ 					if ((abpixel & 0xFF000000) != 0) {
+ 						/* pixel is not transparent;
+ 						 * have to plot something */
+@@ -622,7 +636,7 @@ bitmap_tiles_x(nsfb_t *nsfb,
+ 			pvideo_pos = pvideo;
+ 			for (t = 0; t < 1; t++) {
+ 				for (xloop = xoff; xloop < width; xloop++) {
+-					abpixel = pixel[yoff + xloop];
++					abpixel = bitmap_source_colour(nsfb, pixel, yoff + xloop);
+ 					*(pvideo + xloop - xoff) =
+ 							colour_to_pixel(
+ 								nsfb,
+@@ -632,7 +646,7 @@ bitmap_tiles_x(nsfb_t *nsfb,
+ 			pvideo_pos += width - xoff;
+ 			for (; t < tiles_x - 1; t++) {
+ 				for (xloop = 0; xloop < width; xloop++) {
+-					abpixel = pixel[yoff + xloop];
++					abpixel = bitmap_source_colour(nsfb, pixel, yoff + xloop);
+ 					*(pvideo_pos + xloop) =
+ 							colour_to_pixel(
+ 								nsfb,
+@@ -642,7 +656,7 @@ bitmap_tiles_x(nsfb_t *nsfb,
+ 			}
+ 			for (; t < tiles_x; t++) {
+ 				for (xloop = 0; xloop < xlim; xloop++) {
+-					abpixel = pixel[yoff + xloop];
++					abpixel = bitmap_source_colour(nsfb, pixel, yoff + xloop);
+ 					*(pvideo_pos + xloop) =
+ 							colour_to_pixel(
+ 								nsfb,
 diff --git a/src/surface/sdl.c b/src/surface/sdl.c
-index 8a73581..a6f8afa 100644
+index 8a73581..49fc955 100644
 --- a/src/surface/sdl.c
 +++ b/src/surface/sdl.c
-@@ -10,6 +10,14 @@
+@@ -10,6 +10,12 @@
  #include <stdlib.h>
  #include <SDL/SDL.h>
  
 +#ifdef GEKKO
 +#include <gccore.h>
-+#include <ogc/usbmouse.h>
 +#include <wiiuse/wpad.h>
-+#include <wiikeyboard/keyboard.h>
 +#include <wupc/wupc.h>
 +#endif
 +
  #include "libnsfb.h"
  #include "libnsfb_event.h"
  #include "libnsfb_plot.h"
-@@ -21,6 +29,335 @@
+@@ -21,6 +27,219 @@
  #include "plot.h"
  #include "cursor.h"
  
@@ -279,145 +695,8 @@ index 8a73581..a6f8afa 100644
 +static u32 wii_last_poll_ticks;
 +static u32 wii_polled_buttons;
 +static bool wii_polled_valid;
-+static u8 wii_usb_mouse_buttons;
-+static bool wii_usb_keyboard_ready;
-+static bool wii_usb_mouse_ready;
-+
-+/* libogc's USB HID drivers are independent from SDL's Wii backend. Keep a
-+ * local queue so one HID report can yield movement, wheel, and button events. */
-+#define WII_USB_EVENT_QUEUE_SIZE 16
-+static nsfb_event_t wii_usb_events[WII_USB_EVENT_QUEUE_SIZE];
-+static unsigned int wii_usb_event_head;
-+static unsigned int wii_usb_event_count;
-+
-+static void wii_usb_queue_event(enum nsfb_event_type_e type,
-+        enum nsfb_key_code_e keycode, int x, int y)
-+{
-+    nsfb_event_t *event;
-+    unsigned int tail;
-+
-+    if (wii_usb_event_count == WII_USB_EVENT_QUEUE_SIZE)
-+        return;
-+    tail = (wii_usb_event_head + wii_usb_event_count) %
-+            WII_USB_EVENT_QUEUE_SIZE;
-+    event = &wii_usb_events[tail];
-+    event->type = type;
-+    if (type == NSFB_EVENT_MOVE_RELATIVE) {
-+        event->value.vector.x = x;
-+        event->value.vector.y = y;
-+        event->value.vector.z = 0;
-+    } else {
-+        event->value.keycode = keycode;
-+    }
-+    wii_usb_event_count++;
-+}
-+
-+static bool wii_usb_dequeue_event(nsfb_event_t *event)
-+{
-+    if (wii_usb_event_count == 0)
-+        return false;
-+    *event = wii_usb_events[wii_usb_event_head];
-+    wii_usb_event_head = (wii_usb_event_head + 1) % WII_USB_EVENT_QUEUE_SIZE;
-+    wii_usb_event_count--;
-+    return true;
-+}
-+
-+static enum nsfb_key_code_e wii_usb_keycode(u16 symbol)
-+{
-+    if (symbol <= NSFB_KEY_DELETE)
-+        return (enum nsfb_key_code_e)symbol;
-+
-+    switch (symbol) {
-+    case KS_Shift_L: return NSFB_KEY_LSHIFT;
-+    case KS_Shift_R: return NSFB_KEY_RSHIFT;
-+    case KS_Control_L: return NSFB_KEY_LCTRL;
-+    case KS_Control_R: return NSFB_KEY_RCTRL;
-+    case KS_Alt_L: return NSFB_KEY_LALT;
-+    case KS_Alt_R: return NSFB_KEY_RALT;
-+    case KS_Meta_L: return NSFB_KEY_LMETA;
-+    case KS_Meta_R: return NSFB_KEY_RMETA;
-+    case KS_Caps_Lock: return NSFB_KEY_CAPSLOCK;
-+    case KS_Num_Lock: return NSFB_KEY_NUMLOCK;
-+    case KS_KP_Enter: return NSFB_KEY_RETURN;
-+    case KS_Home: return NSFB_KEY_HOME;
-+    case KS_End: return NSFB_KEY_END;
-+    case KS_Prior: return NSFB_KEY_PAGEUP;
-+    case KS_Next: return NSFB_KEY_PAGEDOWN;
-+    case KS_Up: return NSFB_KEY_UP;
-+    case KS_Down: return NSFB_KEY_DOWN;
-+    case KS_Left: return NSFB_KEY_LEFT;
-+    case KS_Right: return NSFB_KEY_RIGHT;
-+    case KS_Insert: return NSFB_KEY_INSERT;
-+    case KS_F1: return NSFB_KEY_F1;
-+    case KS_F2: return NSFB_KEY_F2;
-+    case KS_F3: return NSFB_KEY_F3;
-+    case KS_F4: return NSFB_KEY_F4;
-+    case KS_F5: return NSFB_KEY_F5;
-+    case KS_F6: return NSFB_KEY_F6;
-+    case KS_F7: return NSFB_KEY_F7;
-+    case KS_F8: return NSFB_KEY_F8;
-+    case KS_F9: return NSFB_KEY_F9;
-+    case KS_F10: return NSFB_KEY_F10;
-+    case KS_F11: return NSFB_KEY_F11;
-+    case KS_F12: return NSFB_KEY_F12;
-+    default: return NSFB_KEY_UNKNOWN;
-+    }
-+}
-+
-+static bool wii_usb_input_event(nsfb_event_t *event)
-+{
-+    keyboard_event keyboard;
-+    mouse_event mouse;
-+
-+    if (wii_usb_dequeue_event(event))
-+        return true;
-+
-+    if (wii_usb_keyboard_ready && KEYBOARD_GetEvent(&keyboard)) {
-+        enum nsfb_key_code_e keycode = wii_usb_keycode(keyboard.symbol);
-+
-+        if ((keyboard.type == KEYBOARD_PRESSED ||
-+                keyboard.type == KEYBOARD_RELEASED) &&
-+                keycode != NSFB_KEY_UNKNOWN) {
-+            event->type = keyboard.type == KEYBOARD_PRESSED ?
-+                    NSFB_EVENT_KEY_DOWN : NSFB_EVENT_KEY_UP;
-+            event->value.keycode = keycode;
-+            return true;
-+        }
-+    }
-+
-+    if (!wii_usb_mouse_ready || !MOUSE_GetEvent(&mouse))
-+        return false;
-+
-+    if (mouse.rx != 0 || mouse.ry != 0)
-+        wii_usb_queue_event(NSFB_EVENT_MOVE_RELATIVE, NSFB_KEY_UNKNOWN,
-+                mouse.rx, mouse.ry);
-+    if (mouse.rz > 0)
-+        wii_usb_queue_event(NSFB_EVENT_KEY_DOWN, NSFB_KEY_MOUSE_4, 0, 0);
-+    else if (mouse.rz < 0)
-+        wii_usb_queue_event(NSFB_EVENT_KEY_DOWN, NSFB_KEY_MOUSE_5, 0, 0);
-+
-+    {
-+        static const u8 button_masks[] = { 1, 4, 2 };
-+        static const enum nsfb_key_code_e button_keys[] = {
-+            NSFB_KEY_MOUSE_1, NSFB_KEY_MOUSE_2, NSFB_KEY_MOUSE_3
-+        };
-+        u8 changed = mouse.button ^ wii_usb_mouse_buttons;
-+        unsigned int index;
-+
-+        for (index = 0; index < sizeof(button_masks) / sizeof(button_masks[0]);
-+                index++) {
-+            if ((changed & button_masks[index]) != 0) {
-+                wii_usb_queue_event((mouse.button & button_masks[index]) != 0 ?
-+                        NSFB_EVENT_KEY_DOWN : NSFB_EVENT_KEY_UP,
-+                        button_keys[index], 0, 0);
-+            }
-+        }
-+        wii_usb_mouse_buttons = mouse.button;
-+    }
-+
-+    return wii_usb_dequeue_event(event);
-+}
-+
++static int wii_pointer_dx, wii_pointer_dy;
++static bool wii_pointer_pending;
 +static u32 wii_canonical_buttons(u32 pressed)
 +{
 +    if (pressed & (WPAD_CLASSIC_BUTTON_ZR | WPAD_CLASSIC_BUTTON_PLUS))
@@ -540,6 +819,11 @@ index 8a73581..a6f8afa 100644
 +            event->type = (current & masks[index]) != 0 ?
 +                    NSFB_EVENT_KEY_DOWN : NSFB_EVENT_KEY_UP;
 +            event->value.keycode = keys[index];
++            if (masks[index] == WPAD_BUTTON_HOME &&
++                    (current & WPAD_BUTTON_HOME) != 0) {
++                event->type = NSFB_EVENT_CONTROL;
++                event->value.controlcode = NSFB_CONTROL_QUIT;
++            }
 +            wii_previous_buttons ^= masks[index];
 +            return true;
 +        }
@@ -578,6 +862,22 @@ index 8a73581..a6f8afa 100644
 +    WPAD_ScanPads();
 +
 +    wii_polled_buttons = wii_controller_buttons();
++    /* A bare Remote without IR moves the pointer continuously with D-pad. */
++    {
++        WPADData *remote = WPAD_Data(0);
++        wii_pointer_dx = wii_pointer_dy = 0;
++        if (remote != NULL && remote->exp.type == WPAD_EXP_NONE &&
++                !remote->ir.valid) {
++            u32 buttons = WPAD_ButtonsHeld(0);
++            wii_pointer_dx = ((buttons & WPAD_BUTTON_RIGHT) ? 3 : 0) -
++                    ((buttons & WPAD_BUTTON_LEFT) ? 3 : 0);
++            wii_pointer_dy = ((buttons & WPAD_BUTTON_DOWN) ? 3 : 0) -
++                    ((buttons & WPAD_BUTTON_UP) ? 3 : 0);
++            wii_polled_buttons &= ~(WPAD_BUTTON_UP | WPAD_BUTTON_DOWN |
++                    WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT);
++        }
++        wii_pointer_pending = wii_pointer_dx != 0 || wii_pointer_dy != 0;
++    }
 +    wii_polled_valid = true;
 +
 +    return wii_polled_buttons != wii_previous_buttons;
@@ -587,7 +887,48 @@ index 8a73581..a6f8afa 100644
  enum nsfb_key_code_e sdl_nsfb_map[] = {
      NSFB_KEY_UNKNOWN,
      NSFB_KEY_UNKNOWN,
-@@ -458,11 +795,31 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -293,7 +512,7 @@ enum nsfb_key_code_e sdl_nsfb_map[] = {
+     NSFB_KEY_KP_MULTIPLY,
+     NSFB_KEY_KP_MINUS,
+     NSFB_KEY_KP_PLUS,
+-    NSFB_KEY_KP_ENTER,
++    NSFB_KEY_RETURN,
+     NSFB_KEY_KP_EQUALS,
+     NSFB_KEY_UP,
+     NSFB_KEY_DOWN,
+@@ -371,6 +590,18 @@ set_palette(nsfb_t *nsfb)
+ 
+ }
+ 
++#ifdef GEKKO
++void nsfb_wii_set_presenter(nsfb_t *nsfb,
++        void (*damage)(void *, const nsfb_bbox_t *),
++        void (*cursor)(void *, const uint32_t *, int, int, int, int, int),
++        void *context)
++{
++    nsfb->wii_damage = damage;
++    nsfb->wii_cursor = cursor;
++    nsfb->wii_presenter = context;
++}
++#endif
++
+ static bool 
+ sdlcopy(nsfb_t *nsfb, nsfb_bbox_t *srcbox, nsfb_bbox_t *dstbox)
+ {
+@@ -400,6 +631,12 @@ sdlcopy(nsfb_t *nsfb, nsfb_bbox_t *srcbox, nsfb_bbox_t *dstbox)
+     dst.h = dstbox->y1 - dstbox->y0;
+  
+     SDL_BlitSurface(sdl_screen, &src, sdl_screen , &dst);
++#ifdef GEKKO
++    if (nsfb->wii_damage != NULL) {
++        nsfb->wii_damage(nsfb->wii_presenter, dstbox);
++        return true;
++    }
++#endif
+ 
+     if ((cursor != NULL) && 
+         (cursor->plotted == false)) {
+@@ -458,11 +695,24 @@ static int sdl_initialise(nsfb_t *nsfb)
          return -1;
  
      /* initialise SDL library */
@@ -596,9 +937,6 @@ index 8a73581..a6f8afa 100644
 +    PAD_Init();
 +    WPAD_Init();
 +    WUPC_Init();
-+    /* Both drivers poll for later device hot-plugging on their own threads. */
-+    wii_usb_keyboard_ready = KEYBOARD_Init(NULL) == 0;
-+    wii_usb_mouse_ready = MOUSE_Init() == 0;
 +#endif
 +    if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO
 +#ifdef GEKKO
@@ -607,10 +945,6 @@ index 8a73581..a6f8afa 100644
 +                 ) < 0 ) {
          fprintf(stderr, "Unable to init SDL: %s\n", SDL_GetError());
 +#ifdef GEKKO
-+        if (wii_usb_mouse_ready)
-+            MOUSE_Deinit();
-+        if (wii_usb_keyboard_ready)
-+            KEYBOARD_Deinit();
 +        WUPC_Shutdown();
 +#endif
          return -1;
@@ -620,7 +954,7 @@ index 8a73581..a6f8afa 100644
      sdl_screen = SDL_SetVideoMode(nsfb->width,
                                    nsfb->height,
                                    nsfb->bpp,
-@@ -478,10 +835,20 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -478,10 +728,20 @@ static int sdl_initialise(nsfb_t *nsfb)
  
      switch (sdl_fmt->BitsPerPixel) {
      case 32:
@@ -641,7 +975,7 @@ index 8a73581..a6f8afa 100644
          break;
  
      default:
-@@ -512,12 +879,56 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -512,12 +772,48 @@ static int sdl_initialise(nsfb_t *nsfb)
      SDL_ShowCursor(SDL_DISABLE);
      SDL_EnableKeyRepeat(300, 50);
  
@@ -685,20 +1019,12 @@ index 8a73581..a6f8afa 100644
 +        SDL_JoystickClose(wii_pointer_joystick);
 +        wii_pointer_joystick = NULL;
 +    }
-+    if (wii_usb_mouse_ready) {
-+        MOUSE_Deinit();
-+        wii_usb_mouse_ready = false;
-+    }
-+    if (wii_usb_keyboard_ready) {
-+        KEYBOARD_Deinit();
-+        wii_usb_keyboard_ready = false;
-+    }
 +    WUPC_Shutdown();
 +#endif
      SDL_Quit();
      return 0;
  }
-@@ -545,6 +956,25 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+@@ -545,6 +841,30 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
  
      nsfb = nsfb; /* unused */
  
@@ -706,10 +1032,15 @@ index 8a73581..a6f8afa 100644
 +    {
 +        bool button_change = wii_poll_controllers();
 +
-+        if (wii_usb_input_event(event)) {
++        if (button_change && wii_controller_event(event)) {
 +            return true;
 +        }
-+        if (button_change && wii_controller_event(event)) {
++        if (wii_pointer_pending) {
++            wii_pointer_pending = false;
++            event->type = NSFB_EVENT_MOVE_RELATIVE;
++            event->value.vector.x = wii_pointer_dx;
++            event->value.vector.y = wii_pointer_dy;
++            event->value.vector.z = 0;
 +            return true;
 +        }
 +    }
@@ -724,3 +1055,44 @@ index 8a73581..a6f8afa 100644
      if (timeout == 0) {
          got_event = SDL_PollEvent(&sdlevent);
      } else {
+@@ -664,6 +984,10 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+ 
+ static int sdl_claim(nsfb_t *nsfb, nsfb_bbox_t *box)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_damage != NULL)
++        return 0;
++#endif
+     struct nsfb_cursor_s *cursor = nsfb->cursor;
+ 
+     if ((cursor != NULL) &&
+@@ -677,6 +1001,16 @@ static int sdl_claim(nsfb_t *nsfb, nsfb_bbox_t *box)
+ static int
+ sdl_cursor(nsfb_t *nsfb, struct nsfb_cursor_s *cursor)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_cursor != NULL) {
++        if (cursor != NULL)
++            nsfb->wii_cursor(nsfb->wii_presenter, cursor->pixel,
++                cursor->bmp_width, cursor->bmp_height, cursor->bmp_stride,
++                cursor->loc.x0 - cursor->hotspot_x,
++                cursor->loc.y0 - cursor->hotspot_y);
++        return true;
++    }
++#endif
+     SDL_Surface *sdl_screen = nsfb->surface_priv;
+     nsfb_bbox_t redraw;
+     nsfb_bbox_t fbarea;
+@@ -716,6 +1050,12 @@ sdl_cursor(nsfb_t *nsfb, struct nsfb_cursor_s *cursor)
+ 
+ static int sdl_update(nsfb_t *nsfb, nsfb_bbox_t *box)
+ {
++#ifdef GEKKO
++    if (nsfb->wii_damage != NULL) {
++        nsfb->wii_damage(nsfb->wii_presenter, box);
++        return 0;
++    }
++#endif
+     SDL_Surface *sdl_screen = nsfb->surface_priv;
+     struct nsfb_cursor_s *cursor = nsfb->cursor;
+ 

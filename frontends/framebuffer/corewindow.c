@@ -52,6 +52,7 @@
 
 #include "framebuffer/gui.h"
 #include "framebuffer/fbtk.h"
+#include "framebuffer/framebuffer.h"
 #include "framebuffer/corewindow.h"
 
 
@@ -105,7 +106,7 @@ static int fb_cw_draw_event(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 	rbox.x1 = rbox.x0 + fbtk_get_width(widget);
 	rbox.y1 = rbox.y0 + fbtk_get_height(widget);
 
-	nsfb_claim(fbtk_get_nsfb(widget), &rbox);
+	framebuffer_claim(fbtk_get_nsfb(widget), &rbox);
 
 	clip.x0 = fb_cw->scrollx;
 	clip.y0 = fb_cw->scrolly;

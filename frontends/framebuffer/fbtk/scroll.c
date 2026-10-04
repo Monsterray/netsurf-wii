@@ -32,6 +32,7 @@
 
 #include "framebuffer/gui.h"
 #include "framebuffer/fbtk.h"
+#include "framebuffer/framebuffer.h"
 #include "framebuffer/image_data.h"
 
 #include "widget.h"
@@ -50,7 +51,7 @@ vscroll_redraw(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 
 	fbtk_get_bbox(widget, &bbox);
 
-	nsfb_claim(root->u.root.fb, &bbox);
+	framebuffer_claim(root->u.root.fb, &bbox);
 
 	rect = bbox;
 
@@ -307,7 +308,7 @@ hscroll_redraw(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 
 	fbtk_get_bbox(widget, &bbox);
 
-	nsfb_claim(root->u.root.fb, &bbox);
+	framebuffer_claim(root->u.root.fb, &bbox);
 
 	rect = bbox;
 

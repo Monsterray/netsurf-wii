@@ -24,9 +24,14 @@
 #ifndef NETSURF_FB_FRAMEBUFFER_H
 #define NETSURF_FB_FRAMEBUFFER_H
 
-extern const struct plotter_table fb_plotters;
+struct fbtk_bitmap;
+const struct plotter_table *framebuffer_get_plotters(void);
+const char *framebuffer_renderer_name(void);
+void framebuffer_present(void);
 
 nsfb_t *framebuffer_initialise(const char *fename, int width, int height, int bpp);
+/* Plot-API claim; raw CPU users must call nsfb_claim/nsfb_get_buffer. */
+int framebuffer_claim(nsfb_t *, nsfb_bbox_t *);
 bool framebuffer_resize(nsfb_t *nsfb, int width, int height, int bpp);
 void framebuffer_finalise(void);
 bool framebuffer_set_cursor(struct fbtk_bitmap *bm);
@@ -37,4 +42,7 @@ bool framebuffer_set_cursor(struct fbtk_bitmap *bm);
  */
 nsfb_t *framebuffer_set_surface(nsfb_t *new_nsfb);
 
+#ifdef GEKKO
+bool framebuffer_gx_test_offscreen(void);
+#endif
 #endif

@@ -11,7 +11,8 @@ BUILD_SYSTEM="$WORKSPACE/buildsystem"
 HOST_BUILD=$(cc -dumpmachine 2>/dev/null || printf '%s' arm64-apple-darwin)
 
 . "$SCRIPT_DIR/env.sh"
-for tool_dir in /opt/homebrew/opt/bison/bin /opt/homebrew/opt/flex/bin; do
+for tool_dir in /usr/local/opt/bison/bin /usr/local/opt/flex/bin \
+	/opt/homebrew/opt/bison/bin /opt/homebrew/opt/flex/bin; do
 	if [ -d "$tool_dir" ]; then
 		PATH="$tool_dir:$PATH"
 	fi
@@ -22,15 +23,7 @@ export PATH
 "$SCRIPT_DIR/bootstrap-input.sh"
 mkdir -p "$WORKSPACE" "$PREFIX"
 
-clone_at() {
-	name=$1
-	revision=$2
-	directory="$WORKSPACE/$name"
-	if [ ! -d "$directory/.git" ]; then
-		git clone "https://github.com/NetSurf-browser/$name.git" "$directory"
-		git -C "$directory" checkout --detach "$revision"
-	fi
-}
+. "$SCRIPT_DIR/dependency-helpers.sh"
 
 clone_at buildsystem 0005ae300283
 clone_at libwapcaplet c7c128d3eb32
@@ -50,11 +43,10 @@ clone_at nsgenbind 44c6736937ae
 # NetSurf's buildsystem assumes Linux has /bin/which. macOS does not.
 sed -i.bak 's#$(shell /bin/which $(CC__))#$(shell command -v $(CC__))#' \
 	"$BUILD_SYSTEM/makefiles/Makefile.tools"
-if git -C "$WORKSPACE/libnsfb" apply --check \
-		"$SCRIPT_DIR/patches/libnsfb-wii-endian.patch" 2>/dev/null; then
-	git -C "$WORKSPACE/libnsfb" apply \
-		"$SCRIPT_DIR/patches/libnsfb-wii-endian.patch"
-fi
+apply_patch_once "$WORKSPACE/libdom" \
+	"$SCRIPT_DIR/patches/libdom-event-dispatch.patch"
+apply_patch_once "$WORKSPACE/libnsfb" \
+	"$SCRIPT_DIR/patches/libnsfb-wii-endian.patch"
 
 ICONV_ARCHIVE="$DEPS_ROOT/downloads/libiconv-1.19.tar.gz"
 ICONV_SOURCE="$DEPS_ROOT/libiconv-1.19"
@@ -95,7 +87,7 @@ for library in libwapcaplet libparserutils libhubbub libdom libcss \
 	make -C "$WORKSPACE/$library" install \
 		NSSHARED="$BUILD_SYSTEM" HOST=powerpc-eabi BUILD="$HOST_BUILD" \
 		CC=powerpc-eabi-gcc AR=powerpc-eabi-ar \
-		PKG_CONFIG="$SCRIPT_DIR/powerpc-eabi-ns-pkg-config" \
+		PKGCONFIG="$SCRIPT_DIR/powerpc-eabi-ns-pkg-config" \
 		PREFIX="$PREFIX" VARIANT=release
 done
 

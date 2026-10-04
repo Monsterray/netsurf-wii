@@ -55,6 +55,9 @@ ifeq ($(NETSURF_WII),YES)
   CFLAGS += $(shell $(PKG_CONFIG) --cflags libnsfb) -Dmain=SDL_main
   LDFLAGS += -Wl,--whole-archive -lnsfb -Wl,--no-whole-archive
   LDFLAGS += $(shell $(PKG_CONFIG) --libs-only-L libnsfb)
+  ifeq ($(HBC_AGENT),1)
+    LDFLAGS += -lhbcagent
+  endif
   LDFLAGS += -lSDLmain -lSDL -laesnd -lwiiuse -lwupc -lbte -lwiikeyboard \
 	-lfat -lopengx -logc -lm
   LDFLAGS += -Wl,--wrap,wiiuse_accept -Wl,--wrap,wiiuse_connect
@@ -182,11 +185,11 @@ $(eval $(foreach V,$(filter FB_FONT_$(NETSURF_FB_FONTLIB)_%,$(.VARIABLES)),$(cal
 # ----------------------------------------------------------------------------
 
 # S_FRONTEND are sources purely for the framebuffer build
-S_FRONTEND := gui.c framebuffer.c schedule.c bitmap.c fetch.c	\
+S_FRONTEND := gui.c framebuffer.c renderers/soft.c schedule.c bitmap.c fetch.c	\
 	findfile.c corewindow.c local_history.c clipboard.c
 
 ifeq ($(NETSURF_WII),YES)
-  S_FRONTEND += wii_compat.c
+  S_FRONTEND += wii_compat.c wii_present.c renderers/gx.c wii_agent.c
 endif
 
 # toolkit sources

@@ -112,7 +112,7 @@ fb_local_history_draw(struct fb_corewindow *fb_cw, struct rect *r)
 	struct redraw_context ctx = {
 		.interactive = true,
 		.background_images = true,
-		.plot = &fb_plotters
+		.plot = framebuffer_get_plotters()
 	};
 	struct fb_local_history_window *lhw;
 

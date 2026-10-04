@@ -26,6 +26,9 @@
 /***** surface options *****/
 
 NSOPTION_INTEGER(fb_depth, 32)
+NSOPTION_STRING(fb_renderer, NULL)
+/** Optional native request-filter plugin: off (default), hosts. */
+NSOPTION_STRING(fb_request_filter, NULL)
 NSOPTION_INTEGER(fb_refresh, 70)
 NSOPTION_STRING(fb_device, NULL)
 NSOPTION_STRING(fb_input_devpath, NULL)

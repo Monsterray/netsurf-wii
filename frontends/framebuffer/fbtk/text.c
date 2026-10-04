@@ -101,7 +101,7 @@ fb_redraw_text(fbtk_widget_t *widget, fbtk_callback_info *cbi )
 	struct redraw_context ctx = {
 		.interactive = true,
 		.background_images = true,
-		.plot = &fb_plotters
+		.plot = framebuffer_get_plotters()
 	};
 
 	fb_text_font_style(widget, &fh, &padding, &font_style);
@@ -116,7 +116,7 @@ fb_redraw_text(fbtk_widget_t *widget, fbtk_callback_info *cbi )
 
 	rect = bbox;
 
-	nsfb_claim(root->u.root.fb, &bbox);
+	framebuffer_claim(root->u.root.fb, &bbox);
 
 	/* clear background */
 	if ((widget->bg & 0xFF000000) != 0) {
@@ -220,7 +220,7 @@ fb_redraw_text_button(fbtk_widget_t *widget, fbtk_callback_info *cbi )
 	struct redraw_context ctx = {
 		.interactive = true,
 		.background_images = true,
-		.plot = &fb_plotters
+		.plot = framebuffer_get_plotters()
 	};
 
 	fb_text_font_style(widget, &fh, &border, &font_style);
@@ -235,7 +235,7 @@ fb_redraw_text_button(fbtk_widget_t *widget, fbtk_callback_info *cbi )
 	rect.x1--;
 	rect.y1--;
 
-	nsfb_claim(root->u.root.fb, &bbox);
+	framebuffer_claim(root->u.root.fb, &bbox);
 
 	/* clear background */
 	if ((widget->bg & 0xFF000000) != 0) {

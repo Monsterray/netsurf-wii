@@ -238,7 +238,7 @@ bitmap_render(struct bitmap *bitmap,
 	struct redraw_context ctx = {
 		.interactive = false,
 		.background_images = true,
-		.plot = &fb_plotters
+		.plot = framebuffer_get_plotters()
 	};
 
 	nsfb_get_geometry(tbm, &width, &height, NULL);
@@ -254,6 +254,15 @@ bitmap_render(struct bitmap *bitmap,
 	/* The height is set in proportion with the width, according to the
 	 * aspect ratio of the required thumbnail. */
 	cheight = ((cwidth * height) + (width / 2)) / width;
+
+#ifdef GEKKO
+	if (cwidth <= 0 || cheight <= 0 ||
+			cwidth > WII_MAX_BITMAP_DIMENSION ||
+			cheight > WII_MAX_BITMAP_DIMENSION ||
+			(size_t)cwidth > WII_MAX_BITMAP_BYTES /
+			((size_t)cheight * sizeof(nsfb_colour_t)))
+		return NSERROR_NOMEM;
+#endif
 
 	/* create temporary surface */
 	bm = nsfb_new(NSFB_SURFACE_RAM);

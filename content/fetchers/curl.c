@@ -28,6 +28,10 @@
  */
 
 /* must come first to ensure winsock2.h vs windows.h ordering issues */
+#ifdef GEKKO
+#include <wiisocket.h>
+#endif
+
 #include "utils/inet.h"
 
 #include <assert.h>
@@ -1320,6 +1324,11 @@ static CURL *fetch_curl_get_handle(lwc_string *host)
 static bool fetch_curl_start(void *vfetch)
 {
 	struct curl_fetch_info *fetch = (struct curl_fetch_info*)vfetch;
+#ifdef GEKKO
+	/* Leave requests queued until asynchronous IOS networking is ready. */
+	if (wiisocket_get_status() == -1)
+		return false;
+#endif
 	if (inside_curl) {
 		NSLOG(netsurf, DEBUG, "Deferring fetch because we're inside cURL");
 		return false;
@@ -1482,7 +1491,22 @@ static bool fetch_curl_process_headers(struct curl_fetch_info *f)
 		fetch_set_http_code(f->fetch_handle, f->http_code);
 	}
 	http_code = f->http_code;
-	NSLOG(netsurf, INFO, "HTTP status code %li", http_code);
+	NSLOG(netsurf,
+	      INFO,
+	      "HTTP status code %li: %s",
+	      http_code,
+	      nsurl_access(f->url));
+#ifdef GEKKO
+	/* Wii release logs omit INFO at compile time; explicit verbose
+	 * diagnosis still needs response outcomes without enabling curl's
+	 * header dump. */
+	if (verbose_log)
+		NSLOG(fetch,
+		      WARNING,
+		      "HTTP %li: %s",
+		      http_code,
+		      nsurl_access(f->url));
+#endif
 
 	if ((http_code == HTTP_RESPONSE_NOT_MODIFIED) &&
 	    (f->postdata->type==FETCH_POSTDATA_NONE)) {

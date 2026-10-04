@@ -14,11 +14,10 @@ if [ ! -d "$SOURCE_DIR/.git" ]; then
 	git -C "$SOURCE_DIR" checkout --detach "$REVISION"
 fi
 
-if git -C "$SOURCE_DIR" apply --check \
-		"$SCRIPT_DIR/patches/libwupc-libogc-3.patch" 2>/dev/null; then
-	git -C "$SOURCE_DIR" apply \
-		"$SCRIPT_DIR/patches/libwupc-libogc-3.patch"
-fi
+. "$SCRIPT_DIR/dependency-helpers.sh"
+verify_revision "$SOURCE_DIR" "$REVISION"
+apply_patch_once "$SOURCE_DIR" \
+	"$SCRIPT_DIR/patches/libwupc-libogc-3.patch"
 
 make -C "$SOURCE_DIR"
 mkdir -p "$PREFIX/include/wupc" "$PREFIX/lib"

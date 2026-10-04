@@ -28,6 +28,7 @@
 
 #include "framebuffer/gui.h"
 #include "framebuffer/fbtk.h"
+#include "framebuffer/framebuffer.h"
 
 #include "widget.h"
 
@@ -52,7 +53,7 @@ fb_redraw_window(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 
 	fbtk_get_bbox(widget, &bbox);
 
-	nsfb_claim(nsfb, &bbox);
+	framebuffer_claim(nsfb, &bbox);
 
 	nsfb_plot_rectangle_fill(nsfb, &bbox, widget->bg);
 

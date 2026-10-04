@@ -31,3 +31,6 @@ override NETSURF_FB_FONTPATH := sd:/apps/netsurf/fonts
 
 override NETSURF_HOMEPAGE := about:welcome
 override NETSURF_LOG_LEVEL := WARNING
+
+# Persist the bounded HTTP cache on SD.
+override NETSURF_FS_BACKING_STORE := YES

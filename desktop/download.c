@@ -211,8 +211,14 @@ static nserror download_callback(llcache_handle *handle,
 			error = guit->download->data(ctx->window,
 					(char *) event->data.data.buf,
 					event->data.data.len);
-			if (error != NSERROR_OK)
+			if (error != NSERROR_OK) {
 				llcache_handle_abort(handle);
+#ifdef GEKKO
+				/* Release the failed transfer after the data callback returns.
+				 * No scheduler allocation is needed in an SD-full/OOM path. */
+				guit->download->error(ctx->window, "Unable to write download");
+#endif
+			}
 		}
 
 		break;

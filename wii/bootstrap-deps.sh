@@ -13,21 +13,16 @@ HOST_BUILD=$(cc -dumpmachine 2>/dev/null || printf '%s' arm64-apple-darwin)
 INPUT_PREFIX="$DEPS_ROOT/input/prefix"
 
 mkdir -p "$DEPS_ROOT"
-if [ ! -d "$BUILD_SYSTEM/.git" ]; then
-	git clone https://github.com/NetSurf-browser/buildsystem.git "$BUILD_SYSTEM"
-fi
-if [ ! -d "$LIBNSFB/.git" ]; then
-	git clone https://github.com/NetSurf-browser/libnsfb.git "$LIBNSFB"
-fi
+. "$SCRIPT_DIR/dependency-helpers.sh"
+WORKSPACE="$DEPS_ROOT"
+clone_at buildsystem 0005ae300283
+clone_at libnsfb b701cdce7241
 
 # NetSurf's buildsystem assumes Linux has /bin/which. macOS does not.
 sed -i.bak 's#$(shell /bin/which $(CC__))#$(shell command -v $(CC__))#' \
 	"$BUILD_SYSTEM/makefiles/Makefile.tools"
 
-if git -C "$LIBNSFB" apply --check \
-		"$SCRIPT_DIR/patches/libnsfb-wii-endian.patch" 2>/dev/null; then
-	git -C "$LIBNSFB" apply "$SCRIPT_DIR/patches/libnsfb-wii-endian.patch"
-fi
+apply_patch_once "$LIBNSFB" "$SCRIPT_DIR/patches/libnsfb-wii-endian.patch"
 
 WII_CFLAGS="-DGEKKO -D_BSD_SOURCE -D_DEFAULT_SOURCE \
 -D_POSIX_C_SOURCE=200112L -I$LIBNSFB/include -I$LIBNSFB/src \

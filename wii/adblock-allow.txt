@@ -1,0 +1,2 @@
+# Allow entries override blocking, including all subdomains.
+# Add a hostname here if a site needs it; restart to reload the policy.

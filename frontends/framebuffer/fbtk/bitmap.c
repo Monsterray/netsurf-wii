@@ -28,6 +28,7 @@
 
 #include "framebuffer/gui.h"
 #include "framebuffer/fbtk.h"
+#include "framebuffer/framebuffer.h"
 #include "framebuffer/image_data.h"
 
 #include "widget.h"
@@ -45,7 +46,7 @@ fb_redraw_bitmap(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 
 	rect = bbox;
 
-	nsfb_claim(nsfb, &bbox);
+	framebuffer_claim(nsfb, &bbox);
 
 	/* clear background */
 	if ((widget->bg & 0xFF000000) != 0) {

@@ -1,0 +1,6 @@
+# Conservative starter policy. One DNS hostname per line; matches subdomains.
+doubleclick.net
+googlesyndication.com
+googletagservices.com
+amazon-adsystem.com
+adsrvr.org

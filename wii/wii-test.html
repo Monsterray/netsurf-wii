@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"><title id="js-title">NetSurf Wii regression</title>
+
+<style>
+body{background:#fff;color:#000;font-family:sans-serif}
+.tiles{width:220px;height:64px;background:url(wii-test.png) repeat}
+.box{display:inline-block;width:64px;height:48px;margin:4px}
+.red{background:#f00}
+.green{background:#0f0}
+.blue{background:#00f}
+</style>
+<script>
+"use strict";
+var wiiShared = 42;
+function wiiSharedFunction()
+{
+    return wiiShared;
+}
+</script>
+<script>
+if (wiiSharedFunction() !== 42)
+    throw new Error("strict page globals lost");
+</script>
+</head>
+
+<body>
+<h1>NetSurf Wii regression</h1>
+
+<p>Red, green, blue, a decoded image, and tiled image:</p>
+<div class="box red"></div>
+<div class="box green"></div>
+<div class="box blue"></div>
+<p><img src="wii-test.png" width="128" height="64"></p>
+<div class="tiles"></div>
+<p>PDF export and download smoke check.</p>
+<script>
+
+var ancestor = document.createElement("div"),
+    target = document.createElement("div"), count = 0, ancestors = 0;
+ancestor.appendChild(target);
+function callback()
+{
+    count++;
+}
+function fire(bubbles)
+{
+    var event = document.createEvent("Event");
+    event.initEvent("probe", bubbles, false);
+    target.dispatchEvent(event);
+}
+ancestor.addEventListener("probe", function() { ancestors++; }, false);
+target.addEventListener("probe", callback, { capture : false, passive : true });
+target.addEventListener("probe", callback, { capture : false });
+fire(false);
+if (count !== 1 || ancestors !== 0)
+    throw new Error("initial listener counts=" + count + "," + ancestors);
+target.removeEventListener("probe", callback, { capture : false });
+fire(false);
+if (count !== 1)
+    throw new Error("removed listener fired");
+target.addEventListener("probe", callback, false);
+fire(true);
+if (count !== 2 || ancestors !== 1)
+    throw new Error("bubbling listener counts=" + count + "," + ancestors);
+document.title = "NetSurf Wii JavaScript PASS";
+if (document.title !== "NetSurf Wii JavaScript PASS")
+    throw new Error("title getter failed");
+</script>
+</body>
+</html>

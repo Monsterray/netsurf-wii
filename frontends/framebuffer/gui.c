@@ -32,9 +32,14 @@
 
 #ifdef GEKKO
 #include <fat.h>
+#include <sys/stat.h>
+#include <malloc.h>
 #include <ogc/system.h>
 #include <wiisocket.h>
+#include <unistd.h>
 #include "framebuffer/wii_compat.h"
+#include "framebuffer/wii_present.h"
+#include "framebuffer/wii_agent.h"
 #define WII_LOG(...) SYS_Report("NetSurf Wii: " __VA_ARGS__)
 #else
 #define WII_LOG(...) ((void)0)
@@ -54,6 +59,12 @@
 #include "netsurf/netsurf.h"
 #include "netsurf/cookie_db.h"
 #include "content/fetch.h"
+#include "content/content.h"
+#include "netsurf/content.h"
+#ifdef GEKKO
+#include "content/backing_store.h"
+#include "content/request_filter.h"
+#endif
 
 #if defined(GEKKO) && defined(WITH_PDF_EXPORT)
 #include "desktop/font_haru.h"
@@ -370,11 +381,9 @@ fb_redraw(fbtk_widget_t *widget,
 	int y;
 	int caret_x, caret_y, caret_h;
 	struct rect clip;
-	struct redraw_context ctx = {
-		.interactive = true,
-		.background_images = true,
-		.plot = &fb_plotters
-	};
+	struct redraw_context ctx = {.interactive = true,
+				     .background_images = true,
+				     .plot = framebuffer_get_plotters()};
 	nsfb_t *nsfb = fbtk_get_nsfb(widget);
 
 	x = fbtk_get_absx(widget);
@@ -386,7 +395,7 @@ fb_redraw(fbtk_widget_t *widget,
 	bwidget->redraw_box.x0 += x;
 	bwidget->redraw_box.x1 += x;
 
-	nsfb_claim(nsfb, &bwidget->redraw_box);
+	framebuffer_claim(nsfb, &bwidget->redraw_box);
 
 	/* redraw bounding box is relative to window */
 	clip.x0 = bwidget->redraw_box.x0;
@@ -505,7 +514,7 @@ process_cmdline(int argc, char** argv)
 
 	nsfb_enumerate_surface_types(framebuffer_pick_default_fename, NULL);
 
-	febpp = 32;
+	febpp = nsoption_int(fb_depth);
 
 	fewidth = nsoption_int(window_width);
 	if (fewidth <= 0) {
@@ -632,6 +641,8 @@ static nserror set_defaults(struct nsoption_s *defaults)
 	defaults[NSOPTION_max_fetchers_per_host].value.i = 2;
 	defaults[NSOPTION_max_cached_fetch_handles].value.i = 1;
 	defaults[NSOPTION_fb_font_cachesize].value.i = 512;
+	nsoption_setnull_charp(disc_cache_path,
+			       strdup("sd:/apps/netsurf/Cache"));
 	nsoption_setnull_charp(ca_bundle,
 		strdup("sd:/apps/netsurf/cacert.pem"));
 	nsoption_setnull_charp(cookie_file,
@@ -674,10 +685,20 @@ static void framebuffer_run(void)
 	int timeout; /* timeout in miliseconds */
 
 	while (fb_complete != true) {
+#ifdef GEKKO
+		if (wii_agent_poll()) {
+			fb_complete = true;
+			break;
+		}
+#endif
 		/* run the scheduler and discover how long to wait for
 		 * the next event.
 		 */
 		timeout = schedule_run();
+#ifdef NETSURF_HBC_AGENT
+		if (timeout < 0 || timeout > 250)
+			timeout = 250;
+#endif
 
 		/* if redraws are pending do not wait for event,
 		 * return immediately
@@ -689,19 +710,19 @@ static void framebuffer_run(void)
 			if ((event.type == NSFB_EVENT_CONTROL) &&
 			    (event.value.controlcode ==  NSFB_CONTROL_QUIT))
 				fb_complete = true;
-#ifdef GEKKO
-			/* The Wii Remote HOME button is mapped to
-			 * NSFB_KEY_ESCAPE by the surface layer; there is no
-			 * window manager on real hardware to ever deliver
-			 * NSFB_CONTROL_QUIT, so without this the app could
-			 * never be exited. */
-			if ((event.type == NSFB_EVENT_KEY_DOWN) &&
-			    (event.value.keycode == NSFB_KEY_ESCAPE))
-				fb_complete = true;
-#endif
 		}
 
+#ifdef GEKKO
+		bool profile_redraw = fbtk_get_redraw_pending(fbtk);
+		if (profile_redraw)
+			wii_present_redraw(true);
+#endif
 		fbtk_redraw(fbtk);
+#ifdef GEKKO
+		if (profile_redraw)
+			wii_present_redraw(false);
+#endif
+		framebuffer_present();
 	}
 }
 
@@ -711,6 +732,10 @@ static void gui_quit(void)
 
 	urldb_save_cookies(nsoption_charp(cookie_jar));
 
+
+#ifdef GEKKO
+	wii_agent_stage("video shutdown");
+#endif
 	framebuffer_finalise();
 }
 
@@ -913,17 +938,15 @@ fb_browser_window_move(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 }
 
 #if defined(GEKKO) && defined(WITH_PDF_EXPORT)
-static void
-fb_export_pdf(struct gui_window *gw)
+static bool fb_export_pdf(struct gui_window *gw, const char *output_path)
 {
-	static const char output_path[] = "sd:/apps/netsurf/netsurf.pdf";
 	struct hlcache_handle *content;
 	struct print_settings *print_settings;
 
 	content = browser_window_get_content(gw->bw);
 	if (content == NULL) {
 		WII_LOG("PDF export skipped: no page content\n");
-		return;
+		return false;
 	}
 
 	haru_nsfont_set_scale((float)nsoption_int(export_scale) / 100);
@@ -931,14 +954,466 @@ fb_export_pdf(struct gui_window *gw)
 			&haru_nsfont);
 	if (print_settings == NULL) {
 		WII_LOG("PDF export failed: no memory\n");
-		return;
+		return false;
 	}
 
-	if (print_basic_run(content, &pdf_printer, print_settings)) {
+	if (print_basic_run(content, &pdf_printer, print_settings) &&
+	    pdf_get_save_result() == NSERROR_OK) {
 		WII_LOG("PDF exported to %s\n", output_path);
+		fbtk_set_text(gw->status, output_path);
+		return true;
 	} else {
 		WII_LOG("PDF export failed\n");
+		fbtk_set_text(gw->status, "Unable to save PDF; check SD space");
+		return false;
 	}
+}
+#endif
+
+#ifdef GEKKO
+/* Explicit developer mode exercises the real browser/export/download paths. */
+static bool wii_test_js, wii_test_js_ok, wii_test_filter_ok;
+static bool wii_test_mode, wii_test_pdf_ok, wii_test_cache_ok,
+	wii_test_cursor_ok, wii_test_gx_ok;
+static unsigned int wii_test_rounds, wii_test_phase;
+static bool wii_sites_mode;
+static unsigned wii_site_seconds = 25;
+static bool wii_site_cosmetic = true, wii_site_background;
+static char wii_site_status[256];
+
+/* Explicit read-only homepage survey. Each page gets a bounded load interval;
+ * captures come from the actual presenter rather than the CPU shadow. */
+static void wii_site_field(FILE *report, const char *key, const char *value)
+{
+	fprintf(report, "%s=", key);
+	if (value)
+		for (; *value; value++)
+			fputc(*value == '\n' || *value == '\r' ? ' ' : *value,
+			      report);
+	fputc('\n', report);
+}
+
+static void wii_sites_poll(void *context)
+{
+	static FILE *sites;
+	static unsigned index, phase;
+	static unsigned network_rounds;
+	static uint64_t started;
+	static char requested[512];
+	static bool scrolled;
+	struct gui_window *gw = window_list;
+	struct hlcache_handle *content;
+	uint64_t now = 0;
+	char path[128];
+	(void)context;
+	if (!gw) {
+		fb_complete = true;
+		return;
+	}
+	content = browser_window_get_content(gw->bw);
+	nsu_getmonotonic_ms(&now);
+	if (index == 0 && wiisocket_get_status() != 1) {
+		if (++network_rounds > 120) {
+			WII_LOG("site survey: network startup did not complete\n");
+			fb_complete = true;
+		} else
+			framebuffer_schedule(500, wii_sites_poll, NULL);
+		return;
+	}
+	if (phase == 0) {
+		nsurl *url;
+		if (!sites) {
+			mkdir("sd:/apps/netsurf/site-results", 0777);
+			sites = fopen("sd:/apps/netsurf/wii-sites.txt", "r");
+		}
+		if (!sites || !fgets(requested, sizeof(requested), sites)) {
+			FILE *report = fopen(
+				"sd:/apps/netsurf/site-results/complete.txt",
+				"w");
+			if (report) {
+				fprintf(report,
+					"sites=%u\njavascript=%u\n",
+					index,
+					nsoption_bool(enable_javascript));
+				request_filter_report(report);
+				fclose(report);
+			}
+			if (sites)
+				fclose(sites);
+			fb_complete = true;
+			return;
+		}
+		requested[strcspn(requested, "\r\n")] = 0;
+		if ((strncmp(requested, "https://", 8) != 0 &&
+		     strncmp(requested, "file:///sd:/apps/netsurf/", 24) !=
+			     0) ||
+		    nsurl_create(requested, &url) != NSERROR_OK) {
+			fclose(sites);
+			fb_complete = true;
+			return;
+		}
+		index++;
+		wii_site_status[0] = 0;
+		started = now;
+		WII_LOG("site %u opening %s\n", index, requested);
+		browser_window_navigate(gw->bw,
+					url,
+					NULL,
+					BW_NAVIGATE_HISTORY,
+					NULL,
+					NULL,
+					NULL);
+		nsurl_unref(url);
+		phase = 1;
+	} else if (phase == 1) {
+		/* about:blank separates sites so a failed fetch cannot be
+		 * mistaken for the previous site's successfully loaded content.
+		 */
+		bool page = content &&
+			    strcmp(nsurl_access(
+					   hlcache_handle_get_url(content)),
+				   "about:blank") != 0;
+		bool done = page &&
+			    content_get_status(content) == CONTENT_STATUS_DONE;
+		if (now - started >= (uint64_t)wii_site_seconds * 1000 ||
+		    (now - started >= 2000 && gw->throbber_index < 0)) {
+			nsurl *url = NULL;
+			FILE *report;
+			snprintf(path,
+				 sizeof(path),
+				 "sd:/apps/netsurf/site-results/%02u.txt",
+				 index);
+			report = fopen(path, "w");
+			if (report) {
+				wii_site_field(report, "requested", requested);
+				if (browser_window_get_url(
+					    gw->bw, true, &url) == NSERROR_OK) {
+					wii_site_field(report,
+						       "final",
+						       nsurl_access(url));
+					nsurl_unref(url);
+				}
+				wii_site_field(report,
+					       "title",
+					       content ? content_get_title(
+								 content)
+						       : "");
+				wii_site_field(report,
+					       "status",
+					       wii_site_status);
+				fprintf(report,
+					"done=%u\npage=%u\nelapsed_ms=%llu\nwidth=%d\nheight=%d\n",
+					done,
+					page,
+					(unsigned long long)(now - started),
+					content ? content_get_width(content)
+						: 0,
+					content ? content_get_height(content)
+						: 0);
+				fclose(report);
+			}
+			if (content) {
+				size_t length = 0;
+				const uint8_t *source = content_get_source_data(
+					content, &length);
+				snprintf(
+					path,
+					sizeof(path),
+					"sd:/apps/netsurf/site-results/%02u-source.html",
+					index);
+				report = fopen(path, "wb");
+				if (report) {
+					if (length > 2 * 1024 * 1024)
+						length = 2 * 1024 * 1024;
+					if (source)
+						fwrite(source, 1, length, report);
+					fclose(report);
+				}
+			}
+			browser_window_stop(gw->bw);
+			phase = 2;
+		}
+	} else if (phase == 2) {
+		int w, h;
+		framebuffer_present();
+		snprintf(path,
+			 sizeof(path),
+			 "sd:/apps/netsurf/site-results/%02u-top.ppm",
+			 index);
+		wii_present_capture(path);
+		browser_window_get_extents(gw->bw, true, &w, &h);
+		scrolled = h > fbtk_get_height(gw->browser);
+		if (scrolled)
+			widget_scroll_y(gw,
+					fbtk_get_height(gw->browser),
+					false);
+		phase = 3;
+	} else {
+		nsurl *blank;
+		FILE *report;
+		framebuffer_present();
+		snprintf(path,
+			 sizeof(path),
+			 "sd:/apps/netsurf/site-results/%02u-scroll.ppm",
+			 index);
+		wii_present_capture(path);
+		snprintf(path,
+			 sizeof(path),
+			 "sd:/apps/netsurf/site-results/%02u.txt",
+			 index);
+		report = fopen(path, "a");
+		if (report) {
+			fprintf(report, "scroll_requested=%u\n", scrolled);
+			fclose(report);
+		}
+		if (nsurl_create("about:blank", &blank) == NSERROR_OK) {
+			browser_window_navigate(gw->bw,
+						blank,
+						NULL,
+						BW_NAVIGATE_HISTORY,
+						NULL,
+						NULL,
+						NULL);
+			nsurl_unref(blank);
+		}
+		phase = 0;
+	}
+	framebuffer_schedule(phase == 2 || phase == 3 ? 1000 : 500,
+			     wii_sites_poll,
+			     NULL);
+}
+
+/* Exercise the real cache boundary; a blocked probe must never start a fetch.
+ */
+static nserror wii_filter_probe_callback(llcache_handle *handle,
+					 const llcache_event *event,
+					 void *pw)
+{
+	(void)handle;
+	(void)event;
+	(void)pw;
+	return NSERROR_OK;
+}
+
+static bool wii_test_request_filter(void)
+{
+	nsurl *url = NULL, *referer = NULL;
+	llcache_handle *handle = NULL;
+	nserror result = NSERROR_NOMEM;
+	if (nsurl_create("https://wii-probe.doubleclick.net/pixel", &url) ==
+		    NSERROR_OK &&
+	    nsurl_create("file:///sd:/apps/netsurf/wii-test.html", &referer) ==
+		    NSERROR_OK)
+		result = llcache_handle_retrieve(url,
+						 0,
+						 referer,
+						 NULL,
+						 wii_filter_probe_callback,
+						 NULL,
+						 &handle);
+	if (handle != NULL) {
+		llcache_handle_abort(handle);
+		llcache_handle_release(handle);
+	}
+	if (url != NULL)
+		nsurl_unref(url);
+	if (referer != NULL)
+		nsurl_unref(referer);
+	return result == NSERROR_PERMISSION;
+}
+
+static bool wii_test_cache(void)
+{
+	nsurl *url;
+	uint8_t *data = (uint8_t *)strdup("Wii SD cache regression");
+	uint8_t *loaded = NULL;
+	size_t length = 0;
+	bool valid = false;
+	if (data == NULL)
+		return false;
+	if (nsurl_create("https://netsurf.invalid/wii-smoke-cache", &url) !=
+	    NSERROR_OK) {
+		free(data);
+		return false;
+	}
+	if (filesystem_llcache_table->store(
+		    url, BACKING_STORE_NONE, data, 23) == NSERROR_OK) {
+		filesystem_llcache_table->release(url, BACKING_STORE_NONE);
+		if (filesystem_llcache_table->fetch(
+			    url, BACKING_STORE_NONE, &loaded, &length) ==
+		    NSERROR_OK) {
+			valid = length == 23 &&
+				memcmp(loaded, "Wii SD cache regression", 23) ==
+					0;
+			filesystem_llcache_table->release(url,
+							  BACKING_STORE_NONE);
+		}
+	} else {
+		/* The store may have taken ownership before its write failed.
+		 */
+		filesystem_llcache_table->release(url, BACKING_STORE_NONE);
+	}
+	filesystem_llcache_table->invalidate(url);
+	nsurl_unref(url);
+	return valid;
+}
+
+static void wii_test_poll(void *context)
+{
+	struct gui_window *gw = window_list;
+	struct hlcache_handle *content = gw == NULL
+						 ? NULL
+						 : browser_window_get_content(
+							   gw->bw);
+	FILE *report;
+	(void)context;
+	if (++wii_test_rounds > 300) {
+		report = fopen("sd:/apps/netsurf/wii-test.txt", "w");
+		if (report != NULL) {
+			fprintf(report,
+				"FAIL: browser smoke timeout phase=%u\n",
+				wii_test_phase);
+			fclose(report);
+		}
+		fb_complete = true;
+		return;
+	}
+	if (wii_test_phase == 0 && content != NULL &&
+	    content_get_status(content) == CONTENT_STATUS_DONE) {
+		wii_test_js_ok = !wii_test_js ||
+				 strcmp(content_get_title(content),
+					"NetSurf Wii JavaScript PASS") == 0;
+		wii_test_phase = 1;
+		framebuffer_schedule(1000, wii_test_poll, NULL);
+		return;
+	}
+	if (wii_test_phase == 1) {
+		nsfb_t *surface = fbtk_get_nsfb(fbtk);
+		framebuffer_present();
+		wii_present_profile_checkpoint();
+		wii_test_gx_ok = wii_present_test_gx() &&
+				 framebuffer_gx_test_offscreen();
+		wii_test_cursor_ok = wii_present_test_cursor();
+		wii_present_capture("sd:/apps/netsurf/wii-test-gx.ppm");
+		unsigned char *pixels;
+		int width, height, stride, x, y;
+		nsurl *download_url;
+		FILE *capture = fopen("sd:/apps/netsurf/wii-test.ppm", "wb");
+		nsfb_get_geometry(surface, &width, &height, NULL);
+		nsfb_get_buffer(surface, &pixels, &stride);
+		if (capture != NULL) {
+			fprintf(capture, "P6\n%d %d\n255\n", width, height);
+			for (y = 0; y < height; y++)
+				for (x = 0; x < width; x++) {
+					unsigned char rgb[3];
+					if (febpp == 16) {
+						const unsigned char *p =
+							pixels + y * stride +
+							x * 2;
+						unsigned color = (p[0] << 8) |
+								 p[1];
+						rgb[0] = ((color >> 11) & 31) *
+							 255 / 31;
+						rgb[1] = ((color >> 5) & 63) *
+							 255 / 63;
+						rgb[2] = (color & 31) * 255 /
+							 31;
+					} else {
+						memcpy(rgb,
+						       pixels + y * stride +
+							       x * 4 + 1,
+						       3);
+					}
+					fwrite(rgb, 1, 3, capture);
+				}
+			fclose(capture);
+		}
+		report = fopen("sd:/apps/netsurf/wii-test.txt", "w");
+		if (report != NULL) {
+			fputs("phase=PDF export\n", report);
+			fclose(report);
+		}
+#ifdef WITH_PDF_EXPORT
+		wii_test_pdf_ok = fb_export_pdf(
+			gw, "sd:/apps/netsurf/wii-test.pdf");
+#endif
+		wii_test_cache_ok = wii_test_cache();
+		if (request_filter_active())
+			wii_test_filter_ok = wii_test_request_filter();
+		wii_log_memory("smoke rendered");
+		if (nsurl_create("file:///sd:/apps/netsurf/wii-test.bin",
+				 &download_url) == NSERROR_OK) {
+			browser_window_navigate(gw->bw,
+						download_url,
+						NULL,
+						BW_NAVIGATE_DOWNLOAD,
+						NULL,
+						NULL,
+						NULL);
+			nsurl_unref(download_url);
+		}
+		wii_test_phase = 2;
+		framebuffer_schedule(2000, wii_test_poll, NULL);
+		return;
+	}
+	if (wii_test_phase == 2) {
+		char payload[20] = {0};
+		FILE *download = fopen(
+			"sd:/apps/netsurf/Downloads/wii-test.bin", "rb");
+		bool valid = download != NULL &&
+			     fread(payload, 1, 16, download) == 16 &&
+			     memcmp(payload, "netsurf-wii-test", 16) == 0;
+		if (download != NULL)
+			fclose(download);
+		report = fopen("sd:/apps/netsurf/wii-test.txt", "w");
+		if (report != NULL) {
+			fprintf(report,
+				"page=PASS\npdf=%s\ndownload=%s\ncache=%s\n",
+#ifdef WITH_PDF_EXPORT
+				wii_test_pdf_ok ? "PASS" : "FAIL",
+#else
+				"DISABLED",
+#endif
+				valid ? "PASS" : "FAIL",
+				wii_test_cache_ok ? "PASS" : "FAIL");
+			if (wii_test_js)
+				fprintf(report,
+					"javascript=%s\n",
+					wii_test_js_ok ? "PASS" : "FAIL");
+			fprintf(report,
+				"renderer=%s\ndepth=%d\n",
+				framebuffer_renderer_name(),
+				febpp);
+			wii_present_stats(report);
+			request_filter_report(report);
+			if (request_filter_active())
+				fprintf(report,
+					"request_filter_test=%s\n",
+					wii_test_filter_ok ? "PASS" : "FAIL");
+			fprintf(report,
+				"gx_contract=%s\n",
+				wii_test_gx_ok ? "PASS" : "FAIL");
+			{
+				struct mallinfo heap = mallinfo();
+				fprintf(report,
+					"cursor=%s\nheap_used=%u\nheap_free=%u\n",
+					wii_test_cursor_ok ? "PASS" : "FAIL",
+					wii_heap_used(),
+					(unsigned)heap.fordblks);
+			}
+			fprintf(report,
+				"MEM1_remaining=%u\nMEM2_remaining=%u\nMEM2_high=%p\n",
+				(unsigned)((uintptr_t)SYS_GetArena1Hi() -
+					   (uintptr_t)SYS_GetArena1Lo()),
+				(unsigned)((uintptr_t)SYS_GetArena2Hi() -
+					   (uintptr_t)SYS_GetArena2Lo()),
+				SYS_GetArena2Hi());
+			fclose(report);
+		}
+		fb_complete = true;
+		return;
+	}
+	framebuffer_schedule(100, wii_test_poll, NULL);
 }
 #endif
 
@@ -1075,7 +1550,8 @@ fb_browser_window_input(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 		case NSFB_KEY_p:
 			if (modifier & FBTK_MOD_RCTRL ||
 					modifier & FBTK_MOD_LCTRL) {
-				fb_export_pdf(gw);
+				fb_export_pdf(gw,
+					      "sd:/apps/netsurf/netsurf.pdf");
 				break;
 			}
 			fallthrough;
@@ -2061,6 +2537,10 @@ gui_window_update_extent(struct gui_window *gw)
 static void
 gui_window_set_status(struct gui_window *g, const char *text)
 {
+#ifdef GEKKO
+	if (wii_sites_mode && text)
+		snprintf(wii_site_status, sizeof(wii_site_status), "%s", text);
+#endif
 	fbtk_set_text(g->status, text);
 }
 
@@ -2294,6 +2774,15 @@ static struct gui_misc_table framebuffer_misc_table = {
 	.quit = gui_quit,
 };
 
+#ifdef GEKKO
+static void wii_network_started(int result, void *context)
+{
+	(void)context;
+	WII_LOG("network startup complete (%d)\n", result);
+	wii_agent_network_ready(result);
+}
+#endif
+
 /**
  * Entry point from OS.
  *
@@ -2322,23 +2811,76 @@ main(int argc, char** argv)
 	};
 
 #ifdef GEKKO
+	{
+		int index;
+		for (index = 1; index < argc; index++) {
+			if (strcmp(argv[index], "--wii-test") == 0) {
+				wii_test_mode = true;
+				memmove(argv + index,
+					argv + index + 1,
+					(argc - index) * sizeof(*argv));
+				argc--;
+				break;
+			}
+		}
+	}
 	SYS_STDIO_Report(true);
 	WII_LOG("entry\n");
-	fatInitDefault();
+	if (!fatInitDefault())
+		fprintf(stderr, "Unable to mount SD/USB storage\n");
 	WII_LOG("FAT initialised\n");
-	/* Block until the network interface is actually usable: an
-	 * async init would let curl fetches race the IOS network
-	 * stack/DHCP negotiation and fail with "unable to connect".
-	 */
-	ret = wiisocket_init();
-	if (ret < 0) {
-		fprintf(stderr, "Unable to start Wii networking (%d)\n", ret);
+	wii_agent_stage("startup");
+	{
+		FILE *test = fopen("sd:/apps/netsurf/wii-test.cfg", "r");
+		if (test != NULL) {
+			char setting[32] = {0};
+			if (fgets(setting, sizeof(setting), test) != NULL &&
+			    strcmp(setting, "selftest=1\n") == 0)
+				wii_test_mode = true;
+			while (fgets(setting, sizeof(setting), test) != NULL) {
+				if (strcmp(setting, "agent-crash=1\n") == 0)
+					wii_agent_arm_crash();
+				else if (strcmp(setting, "exit-stall=1\n") == 0)
+					wii_agent_arm_shutdown_test();
+				else if (strcmp(setting, "javascript=1\n") == 0)
+					wii_test_js = true;
+				else if (strcmp(setting, "sites=1\n") == 0)
+					wii_sites_mode = true;
+				else if (strcmp(setting, "cosmetic=0\n") == 0)
+					wii_site_cosmetic = false;
+				else if (strcmp(setting, "background=1\n") == 0)
+					wii_site_background = true;
+				else if (strncmp(setting,
+						 "site-seconds=",
+						 13) == 0) {
+					unsigned seconds;
+					if (sscanf(setting + 13,
+						   "%u",
+						   &seconds) == 1 &&
+					    seconds >= 5 && seconds <= 90)
+						wii_site_seconds = seconds;
+				} else if (strcmp(setting, "mem2test=1\n") == 0)
+					wii_agent_arm_memory_test();
+			}
+			fclose(test);
+		}
 	}
-	WII_LOG("network startup complete (%d)\n", ret);
+	{
+		int network_result = wiisocket_async_init(wii_network_started,
+							  NULL);
+		if (network_result < 0)
+			fprintf(stderr, "Unable to start Wii networking\n");
+		else if (network_result == 1)
+			wii_agent_network_ready(
+				0); /* already initialized: no callback */
+	}
+	wii_log_memory("startup");
 #endif
 
 #ifdef GEKKO
 	framebuffer_table.file = wii_get_file_table();
+	framebuffer_table.download = &wii_download_table;
+	framebuffer_table.llcache = filesystem_llcache_table;
 #endif
 
         ret = netsurf_register(&framebuffer_table);
@@ -2353,7 +2895,17 @@ main(int argc, char** argv)
 	/* initialise logging. Not fatal if it fails but not much we
 	 * can do about it either.
 	 */
-	nslog_init(nslog_stream_configure, &argc, argv);
+#ifdef GEKKO
+	if (wii_sites_mode) {
+		mkdir("sd:/apps/netsurf/site-results", 0777);
+		int log_argc = 3;
+		char log_name[] = "netsurf", log_flag[] = "-V";
+		char log_path[] = "sd:/apps/netsurf/site-results/browser.log";
+		char *log_argv[] = {log_name, log_flag, log_path, NULL};
+		nslog_init(nslog_stream_configure, &log_argc, log_argv);
+	} else
+#endif
+		nslog_init(nslog_stream_configure, &argc, argv);
 
 	/* user options setup */
 	ret = nsoption_init(set_defaults, &nsoptions, &nsoptions_default);
@@ -2365,6 +2917,26 @@ main(int argc, char** argv)
 	nsoption_read(options, nsoptions);
 	free(options);
 	nsoption_commandline(&argc, argv, nsoptions);
+#ifdef GEKKO
+	if (wii_test_mode) {
+		nsoption_set_bool(background_images, true);
+		nsoption_set_bool(enable_javascript, wii_test_js);
+		nsoption_set_charp(
+			homepage_url,
+			strdup("file:///sd:/apps/netsurf/wii-test.html"));
+	}
+	if (wii_sites_mode) {
+		nsoption_set_bool(enable_javascript, wii_test_js);
+		nsoption_set_bool(block_advertisements, wii_site_cosmetic);
+		nsoption_set_bool(background_images, wii_site_background);
+		nsoption_set_charp(homepage_url, strdup("about:blank"));
+	}
+	if (nsoption_charp(fb_request_filter) &&
+	    strcmp(nsoption_charp(fb_request_filter), "hosts") == 0 &&
+	    !request_filter_init("sd:/apps/netsurf/adblock-hosts.txt",
+				 "sd:/apps/netsurf/adblock-allow.txt"))
+		WII_LOG("hostname filter disabled: missing, invalid or oversized policy\n");
+#endif
 
 	/* message init */
 	messages = filepath_find(respaths, "Messages");
@@ -2400,6 +2972,9 @@ main(int argc, char** argv)
 
 	fbtk = fbtk_init(nsfb);
 	WII_LOG("toolkit initialised\n");
+#ifdef GEKKO
+	wii_log_memory("browser ready");
+#endif
 
 #ifdef GEKKO
 	/* Real CRTs commonly overscan a 640x480 picture, cropping a margin
@@ -2425,6 +3000,20 @@ main(int argc, char** argv)
 
 	urldb_load_cookies(nsoption_charp(cookie_file));
 
+#ifdef NETSURF_HBC_AGENT
+	wii_agent_stage("network readiness");
+	for (unsigned attempt = 0; attempt < 500 && wiisocket_get_status() != 1;
+	     attempt++)
+		usleep(100000);
+	if (wiisocket_get_status() != 1) {
+		wii_agent_stage("network startup timeout");
+		return EXIT_FAILURE;
+	}
+	wii_agent_network_ready(0);
+	wii_agent_poll();
+	wii_agent_stage("browser navigation");
+#endif
+
 	/* create an initial browser window */
 
 	NSLOG(netsurf, INFO, "calling browser_window_create");
@@ -2442,13 +3031,35 @@ main(int argc, char** argv)
 	if (ret != NSERROR_OK) {
 		fb_warn_user("Errorcode:", messages_get_errorcode(ret));
 	} else {
+#ifdef GEKKO
+		if (wii_test_mode)
+			framebuffer_schedule(100, wii_test_poll, NULL);
+		else if (wii_sites_mode)
+			framebuffer_schedule(1000, wii_sites_poll, NULL);
+#endif
+#ifdef GEKKO
+		wii_agent_stage("event loop");
+#endif
 		framebuffer_run();
+#ifdef GEKKO
+		wii_agent_begin_shutdown();
+		wii_agent_stage("destroy browser");
+#endif
 
 		browser_window_destroy(bw);
 	}
 
+#ifdef GEKKO
+	wii_agent_stage("core cleanup");
+#endif
 	netsurf_exit();
+#ifdef GEKKO
+	request_filter_finalise();
+#endif
 
+#ifdef GEKKO
+	wii_agent_stage("font cleanup");
+#endif
 	if (fb_font_finalise() == false)
 		NSLOG(netsurf, INFO, "Font finalisation failed.");
 
@@ -2457,6 +3068,9 @@ main(int argc, char** argv)
 
 	/* finalise logging */
 	nslog_finalise();
+#ifdef GEKKO
+	wii_agent_stage("return to HBC");
+#endif
 
 	return 0;
 }
