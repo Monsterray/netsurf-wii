@@ -90,7 +90,7 @@ artifact therefore has Dolphin validation; earlier physical-Wii results in
 normal exit and the stalled-cleanup watchdog. No fresh hardware pass is claimed.
 
 On 4 October the console became available to the shared dispatcher. All seven
-host checks and six additional Dolphin A/B/A runs passed. Ten physical test
+host checks and six additional Dolphin A/B/A runs passed. Eleven physical test
 jobs were queued behind earlier Wii64/WiiXplorer work; their identifiers and
 artifact hashes are recorded in
 [HBC_AGENT_VALIDATION.md](HBC_AGENT_VALIDATION.md). Submission is not a hardware

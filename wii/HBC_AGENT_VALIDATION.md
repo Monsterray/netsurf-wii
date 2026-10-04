@@ -167,7 +167,7 @@ The physical results above apply to the earlier hashes recorded here.
 
 ## Reviewed-build hardware queue — 4 October 2026
 
-The Wii is responding again. Ten tests were submitted through the shared
+The Wii is responding again. Eleven tests were submitted through the shared
 lease dispatcher; at submission, Wii64 was running and earlier Wii64 and
 WiiXplorer jobs were ahead of them. These are queued tests, not hardware passes.
 Each job freezes its package, ELF, watcher, checker and test configuration.
@@ -188,8 +188,9 @@ status below.
 | Stalled-cleanup watchdog | `20261004-013503-55a6d1` | `hardware-GybDOU` | Pending |
 | All 13 requested URLs, JavaScript/filter | `20261004-013503-84403f` | `hardware-ZRmM1P` | Pending |
 | Intentional crash and 50 MiB MEM2 pressure | `20261004-013545-a5fc22` | `hardware-f8eXfS` | Pending |
+| Restore probe-free app; repeat GX 32-bit smoke | `20261004-014016-b5136b` | `hardware-FbUA4b` | Pending |
 
-The first nine jobs use the reviewed production DOL
+The first nine jobs and the final restoration job use the reviewed production DOL
 `eb89c1e856cbe2a82336182c5513de7b5534f60742b7ddbf498c2365df7e774b`
 and ELF
 `3fca33d883a1ad33f0c2972d3253f16a8c40849f9f09e8676393fc8b88976b08`.
@@ -199,6 +200,8 @@ ELF `e25cb1b4c16aea94d69de1889a31734249e888a9eeb20d4a3d9a747c18df6ac5`.
 The normal probe-free package and reviewed ELF were restored locally after
 freezing this diagnostic job. Both builds use devkitPPC 16.1.0, libogc 3.1.0
 and SDK commit `3b1e9a4e04fbb1afb98f516a2446ef9789877f8f`.
+The final job stages the probe-free package back onto the Wii and repeats the
+normal smoke after crash recovery; its pass remains required.
 
 All seven host checks passed again. The reviewed production artifact also
 passed all six Dolphin A/B/A runs; see
