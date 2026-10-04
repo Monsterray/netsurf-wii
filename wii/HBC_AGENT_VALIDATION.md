@@ -247,3 +247,42 @@ The console was initially unreachable during this check; a later queue status
 showed WiiXplorer running under its own lease. The cause of the earlier timeout
 remains unconfirmed. The user cannot currently inspect the screen, and the
 restoration job waits behind other projects' queued work.
+
+## Successful recovery and retries — 4 October 2026
+
+Settings recovery `20261004-022139-f762c7` completed at 02:30 Pacific. It removed
+the temporary Choices and test config, verified their absence, preserved the
+already-restored policy files and launched no app. The subsequent retry used
+the same frozen production artifact; no browser or harness code was changed.
+
+| Retry | Lease queue job | Local artifact directory | Result |
+| --- | --- | --- | --- |
+| All 13 requested URLs, GX/JavaScript/filter | `20261004-082223-50d4d6` | `hardware-7bBdLO` | PASS, 227 s |
+| Expected DSI and MEM2 capacity probe | `20261004-082641-ae1f6d` | `hardware-crash-retry-t7ka80yj` | PASS, 65 s |
+| Restore probe-free app; repeat GX 32-bit smoke | `20261004-082646-fafd6e` | `hardware-xSi9ug` | PASS, 75 s |
+
+The website survey collected every report, source snapshot and top/scroll
+capture and recorded `stage=return to HBC`, with no crash. Its completed loads
+include blank, partial and verification pages; visual observations are in
+[SITE_COMPATIBILITY.md](SITE_COMPATIBILITY.md). This successful retry does not
+establish the cause of the earlier pre-launch timeout.
+
+The diagnostic boot allocated and verified 52,428,800 MEM2 bytes, then freed
+those temporary allocations before deliberately raising the DSI. It retained
+the 1 MiB record allocation and SDK high bound `0x933a6f40`. The captured fault
+had DAR `0x10`; its PC resolved to `wii_agent_test_crash` in the frozen probe
+ELF. HBC returned and the watcher accepted exactly this expected crash.
+This is an explicit probe, not a crash of the normal browser workload.
+
+The final job staged the reviewed probe-free DOL back onto the Wii, passed all
+GX/JavaScript/filter/PDF/download/cache/cursor checks and recorded a normal HBC
+return. The pre-run status contained the deliberate probe's crash record;
+the post-run and cleanup status reported no crash. Settings cleanup completed
+for all three retries.
+The console was observed free in HBC 1.9.3 after the final job. Together with
+the first eight passes, these complete the eleven planned hardware checks.
+
+An isolated Dolphin survey (`dolphin-rE5RMI`) using the same production DOL/ELF
+also completed all 13 URLs and passed capture completeness. Its process closed
+and no Dolphin instance remained. Raw results remain ignored. Neither this
+survey nor the physical survey proves login, search, shopping or playback.

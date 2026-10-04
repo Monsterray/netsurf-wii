@@ -102,5 +102,13 @@ cleanup could not restore temporary settings. The two unstarted follow-up
 tests were canceled, and guarded settings restoration was queued. Identifiers,
 artifact hashes and the unresolved console/network boundary are recorded in
 [HBC_AGENT_VALIDATION.md](HBC_AGENT_VALIDATION.md). This failure does not establish
-a NetSurf browsing crash, and crash-probe recovery remains untested for the
-reviewed source.
+a NetSurf browsing crash.
+
+Guarded settings recovery subsequently passed. The unchanged production build
+then completed the 13-site physical survey and a matching Dolphin survey. The
+separate expected-DSI/MEM2 diagnostic passed with matching symbols and HBC
+recovery, followed by another passing production GX smoke that restored the
+probe-free app. All eleven planned hardware checks now have passing runs;
+the earlier staging failure remains recorded, with its cause unresolved.
+Most tested websites still render blank, partial or verification pages. See
+[SITE_COMPATIBILITY.md](SITE_COMPATIBILITY.md) for inspected captures and limits.

@@ -190,3 +190,46 @@ Next compatibility work, in order:
 4. Test CSS layout/background-image compatibility on reduced pages. Streaming
    needs a separately budgeted codec/network pipeline; DRM/login requirements
    remain additional constraints.
+
+## Physical-Wii retry — 4 October 2026
+
+Lease job `20261004-082223-50d4d6`, artifacts `hardware-7bBdLO`, visited all
+13 requested URLs with GX, 32-bit pixels, JavaScript and native hostname
+filtering enabled. It returned normally to HBC 1.9.3, reported no crash and
+completed settings restoration. All reports, source snapshots and 26 actual
+screen captures were collected and passed the completeness checker. Top and
+scrolled captures were inspected; sites that did not scroll had identical
+captures. This is a homepage survey, not a test of login, search, purchasing
+or playback.
+
+| URL | Observed screen |
+| --- | --- |
+| youtube.com | Skeleton blocks and black video areas; no usable homepage or playback |
+| startpage.com | Request-verification page |
+| bing.com | Partial layout; search remains untested |
+| yahoo.com | Partial header/feed layout; scrolled area mostly empty |
+| amazon.com | Spinner/verification page; no shopping content |
+| reddit.com | Blank page |
+| crunchyroll.com | Blank page |
+| twitch.tv | Nearly blank shell |
+| rumble.com | Blank top and scrolled views |
+| rockauto.com | Readable header, catalog tabs and manufacturer list, including after scrolling |
+| mcmaster.com | Partial category page with readable labels and empty image boxes |
+| reddit.com/domain/old.reddit.com/ | Readable posts and comments counts; overlapping header and welcome panel |
+| old.reddit.com | Redirected to a login URL; blank captured content |
+
+Every report said `done=1`, including the blank and verification pages. This
+reinforces that fetch completion is not a compatibility verdict. The browser
+log still contains syntax failures and missing Image, Map, XMLHttpRequest,
+Promise, canvas and collection/history behavior. No website fixes were applied
+for this retry. The filter reported 1,883 checked requests and zero blocks
+with the small smoke policy; this is not evidence of effective real-site ad
+coverage.
+
+Frozen DOL SHA-256:
+`eb89c1e856cbe2a82336182c5513de7b5534f60742b7ddbf498c2365df7e774b`.
+Matching ELF SHA-256:
+`3fca33d883a1ad33f0c2972d3253f16a8c40849f9f09e8676393fc8b88976b08`.
+The earlier pre-launch HBC staging failure and its settings recovery are
+retained in [HBC_AGENT_VALIDATION.md](HBC_AGENT_VALIDATION.md); this successful
+retry does not establish the cause of that failure.
