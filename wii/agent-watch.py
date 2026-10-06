@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import threading
 import time
 
 
@@ -102,9 +103,38 @@ def watch(client, wii, run, seconds=90):
         raise
 
 
+def launch_and_watch(client, wii, run, seconds):
+    # Registration and launch happen inside the same hardware lease.
+    server = client.LogServer(0, wii)
+    receiver = None
+    with (run / "agent.log").open("wb") as log:
+        def capture(chunk):
+            log.write(chunk)
+            log.flush()
+
+        server.write = capture
+        try:
+            server.register(wii)
+            receiver = threading.Thread(
+                target=server.serve, args=(True,), daemon=True
+            )
+            receiver.start()
+            client.send(wii, str(run / "package/boot.dol"), [])
+            watch(client, wii, run, seconds)
+        finally:
+            server.unregister(wii)
+            server.close()
+            if receiver is not None:
+                receiver.join(2)
+
+
 if __name__ == "__main__":
     spec = importlib.util.spec_from_file_location("hbc", sys.argv[1])
     client = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(client)
     run = Path(sys.argv[3])
-    watch(client, sys.argv[2], run, 420 if (run / "sites-test").exists() else 90)
+    seconds = 420 if (run / "sites-test").exists() else 90
+    if "--launch" in sys.argv[4:]:
+        launch_and_watch(client, sys.argv[2], run, seconds)
+    else:
+        watch(client, sys.argv[2], run, seconds)

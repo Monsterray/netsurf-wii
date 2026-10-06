@@ -104,12 +104,12 @@ NSLOG_DEFINE_CATEGORY(dukky, "Duktape JavaScript Binding");
 NSLOG_DEFINE_CATEGORY(jserrors, "JavaScript error messages");
 
 static void
-netsurf_render_log(void *_ctx,
+netsurf_render_log_to(FILE *stream,
 		   nslog_entry_context_t *ctx,
 		   const char *fmt,
 		   va_list args)
 {
-	fprintf(logfile,
+	fprintf(stream,
 		"%s [%s %.*s] %.*s:%i %.*s: ",
 		nslog_gettime(),
 		nslog_short_level_name(ctx->level),
@@ -121,10 +121,29 @@ netsurf_render_log(void *_ctx,
 		ctx->funcnamelen,
 		ctx->funcname);
 
-	vfprintf(logfile, fmt, args);
+	vfprintf(stream, fmt, args);
 
 	/* Log entries aren't newline terminated add one for clarity */
-	fputc('\n', logfile);
+	fputc('\n', stream);
+}
+
+static void
+netsurf_render_log(void *_ctx, nslog_entry_context_t *ctx,
+		   const char *fmt, va_list args)
+{
+#if defined(GEKKO) && defined(NETSURF_HBC_AGENT)
+	/* The HBC SDK streams stderr. Preserve survey files as well. */
+	va_list network_args;
+	va_copy(network_args, args);
+#endif
+	netsurf_render_log_to(logfile, ctx, fmt, args);
+#if defined(GEKKO) && defined(NETSURF_HBC_AGENT)
+	if (logfile != stderr) {
+		netsurf_render_log_to(stderr, ctx, fmt, network_args);
+		fflush(stderr);
+	}
+	va_end(network_args);
+#endif
 }
 
 /* exported interface documented in utils/log.h */

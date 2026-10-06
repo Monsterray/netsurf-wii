@@ -1,5 +1,40 @@
 # HBC agent validation — 2026-10-02
 
+## Live log delivery — 6 October 2026
+
+Agent builds now retain page-console diagnostics during ordinary browsing,
+mirror browser file logs to the SDK's stderr stream, and send Wii diagnostic
+messages to stderr as well as OSReport. Hardware tests register their receiver
+inside the lease and retain `agent.log`, plus the SDK's `agent-log-status.txt`.
+The opt-in `WII_AGENT_LOG_TEST=1` requires successful initialization and received
+bytes. Receiver registration is cleared on exit and failures.
+
+The physical validation passed in `hardware-rtuATs`, queue job
+`20261006-002217-0f55d9`, with `/usr/bin/python3` as the host interpreter:
+
+- `netlog_init=0`; the receiver captured the connection marker, Wii activity,
+  HTTP diagnostics and the actual HTML5test `getBoundingClientRect` exception.
+- The app returned to HBC 1.10.0, with no crash, no remaining agent, completed
+  settings cleanup and the logging target cleared.
+- DOL SHA-256:
+  `d60e650caaf9c772fb5203a8145f7d9f9ac54299319768e8c4e250d0c4bd4daf`.
+  ELF SHA-256:
+  `1913fd1a868b31f6431efcc263f5266befe4eb2ee1fa656a6b21a9c2d40f00c2`.
+
+Earlier receiver attempts using this Mac's Homebrew Python captured no bytes;
+`hardware-CCSVsf`, job `20261006-001401-43adbb`, recorded SDK initialization
+`-116` (ETIMEDOUT). That run returned normally to HBC but did not validate
+network logging. The system-Python comparison succeeded without changing
+firewall settings. The harness now defaults to the signed system interpreter
+on macOS, with `WII_HOST_PYTHON` available as an override.
+
+The matching final Dolphin GX32/JS/filter regression passed in
+`dolphin-FP16BZ` and its isolated process closed. Host checks passed for the
+real log renderer's formatted arguments, no duplicate stderr records, byte
+capture and receiver cleanup after watcher failure. HTML5test remains blocked
+by missing element geometry; these are diagnostic and regression successes,
+not a completed HTML5 compatibility test. See [HTML5TEST_RESULTS.md](HTML5TEST_RESULTS.md).
+
 Built against devkitPPC r50 / GCC 16.1.0 and libogc 3.1.0. The external
 HBC-Reborn SDK was rebuilt with the same toolchain inside ignored deps.
 

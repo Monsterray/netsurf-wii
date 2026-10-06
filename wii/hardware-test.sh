@@ -5,6 +5,14 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 CLIENT=${HBC_CLIENT:-"$ROOT/../hbc-reborn/tools/hbc.py"}
 BENCH=${WII_BENCH_CLIENT:-"$HOME/.wii-bench/wiibench.py"}
+if [ -z "${WII_HOST_PYTHON:-}" ]; then
+    WII_HOST_PYTHON=python3
+    # The signed macOS interpreter can receive logs under the existing firewall
+    # policy; a separately installed Python binary may need its own permission.
+    if [ "$(uname -s)" = Darwin ] && [ -x /usr/bin/python3 ]; then
+        WII_HOST_PYTHON=/usr/bin/python3
+    fi
+fi
 if [ -z "${WII_BENCH_JOB:-}" ]; then
 	[ -s "$SCRIPT_DIR/dist/apps/netsurf/boot.dol" ] || { echo 'Build the browser first.' >&2; exit 1; }
 	mkdir -p "$SCRIPT_DIR/.deps/runs"
@@ -15,6 +23,10 @@ if [ -z "${WII_BENCH_JOB:-}" ]; then
 	cp "$ROOT/nsfb" "$RUN/boot.elf"
 	cp "$SCRIPT_DIR/check-smoke.py" "$RUN/check-smoke.py"
 	cp "$SCRIPT_DIR/agent-watch.py" "$RUN/agent-watch.py"
+    if [ "${WII_AGENT_LOG_TEST:-0}" = 1 ]; then
+        grep -qx "HBC_AGENT=1" "$RUN/package/build-info.txt" || { echo 'Log test needs agent build' >&2; exit 1; }
+        touch "$RUN/log-test"
+    fi
     cp "$SCRIPT_DIR/check-sites.py" "$RUN/check-sites.py"
 	if [ "${WII_AGENT_EXIT_TEST:-0}" = 1 ]; then
 		grep -qx "HBC_AGENT=1" "$RUN/package/build-info.txt" || { echo "Exit test needs HBC_AGENT=1" >&2; exit 1; }
@@ -50,6 +62,7 @@ if [ -z "${WII_BENCH_JOB:-}" ]; then
         cp "$WII_SITE_LIST" "$RUN/package/wii-sites.txt"
         printf 'selftest=0\nsites=1\njavascript=%s\nsite-seconds=%s\n' "${WII_JS_TEST:-0}" "${WII_SITE_SECONDS:-25}" > "$RUN/package/wii-test.cfg"
         touch "$RUN/sites-test"
+        printf 'site-min-seconds=%s\n' "${WII_SITE_MIN_SECONDS:-2}" >> "$RUN/package/wii-test.cfg"
         printf 'cosmetic=%s\nbackground=%s\n' "${WII_COSMETIC:-1}" "${WII_BACKGROUND:-0}" >> "$RUN/package/wii-test.cfg"
     fi
 	printf 'fb_renderer:%s\nfb_depth:%s\n' "${WII_RENDERER:-soft}" "${WII_DEPTH:-32}" > "$RUN/package/Choices"
@@ -57,13 +70,14 @@ if [ -z "${WII_BENCH_JOB:-}" ]; then
 	job=$(python3 "$BENCH" add --name 'NetSurf Wii full-browser smoke' \
 		--agent netsurf-wii --timeout "${WII_JOB_SECONDS:-240}" --cwd "$ROOT" -- \
 		env "NETSURF_WII_RUN=$RUN" "HBC_CLIENT=$CLIENT" \
+		"WII_HOST_PYTHON=${WII_HOST_PYTHON:-python3}" \
 		bash -c "$(cat "$SCRIPT_DIR/hardware-test.sh")" "$SCRIPT_DIR/hardware-test.sh")
 	printf 'Hardware smoke queued: %s\nArtifacts: %s\n' "$job" "$RUN"
 	exec python3 "$BENCH" wait "$job"
 fi
 RUN=${NETSURF_WII_RUN:?Missing frozen run directory}
 WII=${WII_BENCH_IP:?The dispatcher must provide the leased Wii address}
-hbc() { python3 "$CLIENT" --wii "$WII" "$@"; }
+hbc() { "${WII_HOST_PYTHON:-python3}" "$CLIENT" --wii "$WII" "$@"; }
 hbc wait 60
 hbc --json status > "$RUN/hbc-before.json"
 python3 - "$RUN/hbc-before.json" <<'PY_CHECK'
@@ -122,10 +136,14 @@ for path in wii-test.txt wii-test.ppm wii-test-gx.ppm wii-test.pdf Downloads/wii
 	hbc rm "sd:/apps/netsurf/$path" >> "$RUN/staging.log" 2>&1 || true
 done
 
-hbc send "$RUN/package/boot.dol"
-python3 "$RUN/agent-watch.py" "$CLIENT" "$WII" "$RUN"
+"${WII_HOST_PYTHON:-python3}" "$RUN/agent-watch.py" "$CLIENT" "$WII" "$RUN" --launch
 if grep -qx "HBC_AGENT=1" "$RUN/package/build-info.txt"; then
     hbc get sd:/apps/netsurf/wii-lifecycle.txt "$RUN/wii-lifecycle.txt"
+    hbc get sd:/apps/netsurf/agent-log-status.txt "$RUN/agent-log-status.txt"
+    if [ -f "$RUN/log-test" ]; then
+        grep -qx 'netlog_init=0' "$RUN/agent-log-status.txt"
+        [ -s "$RUN/agent.log" ] || { echo 'No live agent logs received' >&2; exit 1; }
+    fi
 fi
 if [ -f "$RUN/stall-test" ]; then
     hbc get sd:/apps/netsurf/wii-lifecycle.txt "$RUN/wii-lifecycle.txt"

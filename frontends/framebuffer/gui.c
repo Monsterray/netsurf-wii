@@ -40,7 +40,14 @@
 #include "framebuffer/wii_compat.h"
 #include "framebuffer/wii_present.h"
 #include "framebuffer/wii_agent.h"
+#ifdef NETSURF_HBC_AGENT
+#define WII_LOG(...) do { \
+	SYS_Report("NetSurf Wii: " __VA_ARGS__); \
+	fprintf(stderr, "NetSurf Wii: " __VA_ARGS__); \
+} while (0)
+#else
 #define WII_LOG(...) SYS_Report("NetSurf Wii: " __VA_ARGS__)
+#endif
 #else
 #define WII_LOG(...) ((void)0)
 #endif
@@ -978,6 +985,7 @@ static bool wii_test_mode, wii_test_pdf_ok, wii_test_cache_ok,
 static unsigned int wii_test_rounds, wii_test_phase;
 static bool wii_sites_mode;
 static unsigned wii_site_seconds = 25;
+static unsigned wii_site_min_seconds = 2;
 static bool wii_site_cosmetic = true, wii_site_background;
 static char wii_site_status[256];
 
@@ -1076,7 +1084,8 @@ static void wii_sites_poll(void *context)
 		bool done = page &&
 			    content_get_status(content) == CONTENT_STATUS_DONE;
 		if (now - started >= (uint64_t)wii_site_seconds * 1000 ||
-		    (now - started >= 2000 && gw->throbber_index < 0)) {
+		    (now - started >= (uint64_t)wii_site_min_seconds * 1000 &&
+		     gw->throbber_index < 0)) {
 			nsurl *url = NULL;
 			FILE *report;
 			snprintf(path,
@@ -2752,6 +2761,12 @@ gui_window_event(struct gui_window *gw, enum gui_window_event event)
 	return NSERROR_OK;
 }
 
+#ifdef GEKKO
+static void gui_window_console_log(struct gui_window *gw,
+		browser_window_console_source source, const char *message,
+		size_t length, browser_window_console_flags flags);
+#endif
+
 static struct gui_window_table framebuffer_window_table = {
 	.create = gui_window_create,
 	.destroy = gui_window_destroy,
@@ -2765,6 +2780,9 @@ static struct gui_window_table framebuffer_window_table = {
 	.set_status = gui_window_set_status,
 	.set_pointer = gui_window_set_pointer,
 	.place_caret = gui_window_place_caret,
+#ifdef GEKKO
+	.console_log = gui_window_console_log,
+#endif
 };
 
 
@@ -2784,6 +2802,24 @@ static nserror gui_get_screen_dimensions(int *width, int *height, int *depth)
 	}
 	return NSERROR_OK;
 }
+
+#ifdef GEKKO
+static void gui_window_console_log(struct gui_window *gw,
+		browser_window_console_source source, const char *message,
+		size_t length, browser_window_console_flags flags)
+{
+	(void)gw;
+	(void)flags;
+	/* Keep caught exceptions visible in agent builds and opt-in surveys. */
+#ifndef NETSURF_HBC_AGENT
+	if (!wii_sites_mode)
+		return;
+#endif
+	if (source == BW_CS_SCRIPT_CONSOLE)
+		NSLOG(jserrors, WARNING, "Page console: %.*s",
+		      (int)(length > 4096 ? 4096 : length), message);
+}
+#endif
 
 static struct gui_misc_table framebuffer_misc_table = {
 	.schedule = framebuffer_schedule,
@@ -2877,6 +2913,11 @@ main(int argc, char** argv)
 						   &seconds) == 1 &&
 					    seconds >= 5 && seconds <= 90)
 						wii_site_seconds = seconds;
+				} else if (strncmp(setting, "site-min-seconds=", 17) == 0) {
+					unsigned seconds;
+					if (sscanf(setting + 17, "%u", &seconds) == 1 &&
+					    seconds >= 2 && seconds <= 90)
+						wii_site_min_seconds = seconds;
 				} else if (strcmp(setting, "mem2test=1\n") == 0)
 					wii_agent_arm_memory_test();
 			}

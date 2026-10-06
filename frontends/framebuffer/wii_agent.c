@@ -246,7 +246,14 @@ bool wii_agent_poll(void)
 		started = true;
 		/* Connect only to a logging target explicitly registered
 		 * through HBC. */
-		hbc_netlog_init();
+		int log_result = hbc_netlog_init();
+		FILE *log_status = fopen("sd:/apps/netsurf/agent-log-status.txt", "w");
+		if (log_status != NULL) {
+			fprintf(log_status, "netlog_init=%d\n", log_result);
+			fclose(log_status);
+		}
+		if (log_result == 0)
+			fprintf(stderr, "NetSurf: agent log connected\n");
 	}
 	if (started && shutdown_test_armed) {
 		wii_agent_begin_shutdown();

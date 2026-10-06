@@ -19,6 +19,7 @@ fi
 if [ -n "${WII_SITE_LIST:-}" ]; then
     printf 'selftest=0\nsites=1\njavascript=%s\nsite-seconds=%s\n' "${WII_JS_TEST:-0}" "${WII_SITE_SECONDS:-25}" > "$PROFILE/Load/WiiSDSync/apps/netsurf/wii-test.cfg"
     cp "$WII_SITE_LIST" "$PROFILE/Load/WiiSDSync/apps/netsurf/wii-sites.txt"
+    printf 'site-min-seconds=%s\n' "${WII_SITE_MIN_SECONDS:-2}" >> "$PROFILE/Load/WiiSDSync/apps/netsurf/wii-test.cfg"
     printf 'cosmetic=%s\nbackground=%s\n' "${WII_COSMETIC:-1}" "${WII_BACKGROUND:-0}" >> "$PROFILE/Load/WiiSDSync/apps/netsurf/wii-test.cfg"
     rm -rf "$PROFILE/Load/WiiSDSync/apps/netsurf/site-results"
 fi

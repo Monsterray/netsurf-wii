@@ -271,6 +271,10 @@ The survey waits for network readiness before the first page. Override the
 25-second per-page budget with `WII_SITE_SECONDS` (5–90); increase the launcher
 and job bounds accordingly for a longer manifest. Observed compatibility and
 capture locations are in [SITE_COMPATIBILITY.md](SITE_COMPATIBILITY.md).
+For asynchronous test pages, set `WII_SITE_MIN_SECONDS` (2–90, default 2)
+to keep observing after loading finishes. The maximum `WII_SITE_SECONDS`
+still applies. Surveys capture page console messages in `browser.log`, with
+each entry limited to 4096 bytes. Normal browsing retains release logging.
 The target smoke loads `wii-test.html`, captures actual framebuffer colors,
 exports a PDF, downloads a fixture, performs an SD cache write/read, and checks the produced
 artifacts. It is
@@ -313,7 +317,19 @@ python3 wii/test-agent.py
 The agent starts after wiisocket finishes network startup. It answers live
 status and mounted-device file requests, supports screenshots and cooperative
 remote exit, and installs the SDK's fatal-exception recorder/reload handler.
-A logging target registered through `hbc.py log` also receives stdout/stderr.
+A logging target registered through `hbc.py log` receives stdout/stderr,
+browser warnings, JavaScript errors and page console messages in agent builds.
+Wii diagnostic messages also remain available to Dolphin through OSReport.
+Survey logs are written to SD and mirrored to the network stream.
+The hardware harness automatically registers a receiver before launch,
+retains `agent.log` and `agent-log-status.txt` in its frozen run, and unregisters
+the receiver afterward. `WII_AGENT_LOG_TEST=1` requires successful SDK log
+initialization and a nonempty received log; use it to validate live delivery.
+`python3 wii/test-logging.py` checks formatting and duplicate suppression.
+The harness uses `/usr/bin/python3` on macOS for the HBC client and log
+receiver, and `python3` elsewhere. Set `WII_HOST_PYTHON` to override it.
+This avoids changing firewall settings when the system interpreter is already
+allowed to receive incoming connections.
 Crash handling is active after agent initialization; earlier startup faults
 still require Dolphin logs. SDL owns controllers and GX; the agent HOME overlay
 is not opened. Local HOME retains the browser's normal exit behavior.

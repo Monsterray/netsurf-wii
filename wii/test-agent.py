@@ -223,6 +223,43 @@ with tempfile.TemporaryDirectory() as directory:
             ), "Fallback exit passed as cooperative"
 print("PASS: live status, foreign-app refusal, crash evidence, failure recovery")
 
+# The receiver must retain bytes and release registration even on failure.
+with tempfile.TemporaryDirectory() as directory:
+    p = Path(directory)
+    calls = []
+
+    class LogServer:
+        def __init__(self, port, wii):
+            assert port == 0 and wii == "unused"
+
+        def register(self, wii):
+            calls.append("register")
+
+        def serve(self, once):
+            assert once
+            self.write(b"page diagnostic\n")
+
+        def unregister(self, wii):
+            calls.append("unregister")
+
+        def close(self):
+            calls.append("close")
+
+    client = SimpleNamespace(LogServer=LogServer)
+    client.send = lambda *args: calls.append("send")
+    for failure in [None, RuntimeError("watch failed")]:
+        calls.clear()
+        try:
+            with patch.object(watcher, "watch", side_effect=failure):
+                watcher.launch_and_watch(client, "unused", p, 90)
+        except RuntimeError:
+            assert failure is not None
+        else:
+            assert failure is None
+        assert calls == ["register", "send", "unregister", "close"]
+        assert (p / "agent.log").read_bytes() == b"page diagnostic\n"
+print("PASS: agent log capture and receiver cleanup after watcher failure")
+
 # Run the real shell cleanup: never modify files in another running app and
 # never report success when restoring our temporary configuration fails.
 cleanup_source = (ROOT / "wii/hardware-test.sh").read_text()
