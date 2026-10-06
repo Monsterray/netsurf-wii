@@ -567,7 +567,7 @@ html_process_script(void *ctx, dom_node *node)
 {
 	html_content *c = (html_content *)ctx;
 	dom_exception exc; /* returned by libdom functions */
-	dom_string *src, *mimetype;
+	dom_string *src = NULL, *mimetype = NULL;
 	dom_hubbub_error err = DOM_HUBBUB_OK;
 
 	/* ensure javascript context is available */
@@ -590,8 +590,30 @@ html_process_script(void *ctx, dom_node *node)
 	      node);
 
 	exc = dom_element_get_attribute(node, corestring_dom_type, &mimetype);
-	if (exc != DOM_NO_ERR || mimetype == NULL) {
+	if (exc != DOM_NO_ERR || mimetype == NULL ||
+	    dom_string_byte_length(mimetype) == 0) {
+		dom_string_unref(mimetype);
 		mimetype = dom_string_ref(corestring_dom_text_javascript);
+	}
+
+	/* External scripts must respect the declared type, just like inline
+	 * scripts. Unsupported modules and data blocks are not classic JS.
+	 */
+	{
+		lwc_string *type;
+		bool supported;
+		exc = dom_string_intern(mimetype, &type);
+		if (exc != DOM_NO_ERR) {
+			dom_string_unref(mimetype);
+			return DOM_HUBBUB_NOMEM;
+		}
+		supported = select_script_handler(
+				content_factory_type_from_mime_type(type)) != NULL;
+		lwc_string_unref(type);
+		if (!supported) {
+			dom_string_unref(mimetype);
+			return DOM_HUBBUB_OK;
+		}
 	}
 
 	exc = dom_element_get_attribute(node, corestring_dom_src, &src);
