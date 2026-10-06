@@ -1658,14 +1658,25 @@ bool js_fire_event(jsthread *thread, const char *type, struct dom_document *doc,
 	NSLOG(dukky, DEBUG, "Event: %s (doc=%p, target=%p)", type, doc,
 	      target);
 
-	/** @todo Make this more generic, this only handles load and only
-	 * targetting the window, so that we actually stand a chance of
-	 * getting 3.4 out.
+	/* Node events use the DOM dispatcher and its registered JS listeners.
+	 * Window load retains the existing Window/body handler path below.
 	 */
 
-	if (target != NULL)
-		/* Swallow non-Window-targetted events quietly */
-		return true;
+	if (target != NULL) {
+		dom_string *name;
+		bool success = false;
+		if (dom_string_create((const uint8_t *)type, strlen(type), &name) != DOM_NO_ERR)
+			return false;
+		exc = dom_event_create(&evt);
+		if (exc == DOM_NO_ERR) {
+			exc = dom_event_init(evt, name, false, false);
+			if (exc == DOM_NO_ERR)
+				exc = dom_event_target_dispatch_event(target, evt, &success);
+			dom_event_unref(evt);
+		}
+		dom_string_unref(name);
+		return exc == DOM_NO_ERR && success;
+	}
 
 	if (strcmp(type, "load") != 0)
 		/* Swallow non-load events quietly */

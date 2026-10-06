@@ -8,6 +8,63 @@
  *         http://www.opensource.org/licenses/mit-license
  */
 
+prologue HTMLImageElement()
+%{
+#include "utils/corestrings.h"
+#include "content/hlcache.h"
+#include "netsurf/content.h"
+#include "html/html.h"
+#include "html/private.h"
+#include "html/object.h"
+#include "html/box.h"
+#include "html/box_construct.h"
+
+static struct content_html_object *image_request(dom_node *node)
+{
+	dom_document *document = NULL;
+	struct html_content *html = NULL;
+	if (dom_node_get_owner_document(node, &document) == DOM_NO_ERR && document) {
+		dom_node_get_user_data(document, corestring_dom___ns_key_html_content_data, &html);
+		dom_node_unref(document);
+	}
+	return html ? html_image_object(html, node) : NULL;
+}
+
+static hlcache_handle *image_content(dom_node *node)
+{
+	struct content_html_object *request = image_request(node);
+	struct box *box;
+	if (request)
+		return request->complete ? request->content : NULL;
+	box = box_for_node(node);
+	return box ? box->object : NULL;
+}
+
+static duk_ret_t image_dimension(duk_context *ctx, dom_node *node, bool width, bool natural)
+{
+	hlcache_handle *content = image_content(node);
+	dom_string *attribute = NULL;
+	int size = 0;
+	if (!natural && dom_element_get_attribute(node,
+			width ? corestring_dom_width : corestring_dom_height,
+			&attribute) == DOM_NO_ERR && attribute) {
+		/* libdom performs the unsigned integer attribute conversion. */
+		uint32_t value = 0;
+		if (width)
+			dom_html_image_element_get_width((dom_html_image_element *)node, &value);
+		else
+			dom_html_image_element_get_height((dom_html_image_element *)node, &value);
+		dom_string_unref(attribute);
+		duk_push_uint(ctx, value);
+		return 1;
+	}
+	if (content && content_get_status(content) == CONTENT_STATUS_DONE)
+		size = width ? content_get_width(content) : content_get_height(content);
+	duk_push_int(ctx, size);
+	return 1;
+}
+%}
+
 init HTMLImageElement(struct dom_html_element *html_image_element::html_element);
 
 getter HTMLImageElement::align();
@@ -34,7 +91,10 @@ setter HTMLImageElement::src();
 getter HTMLImageElement::useMap();
 setter HTMLImageElement::useMap();
 
-getter HTMLImageElement::height();
+getter HTMLImageElement::height()
+%{
+	return image_dimension(ctx, ((node_private_t *)priv)->node, false, false);
+%}
 setter HTMLImageElement::height();
 
 getter HTMLImageElement::hspace();
@@ -43,5 +103,37 @@ setter HTMLImageElement::hspace();
 getter HTMLImageElement::vspace();
 setter HTMLImageElement::vspace();
 
-getter HTMLImageElement::width();
+getter HTMLImageElement::width()
+%{
+	return image_dimension(ctx, ((node_private_t *)priv)->node, true, false);
+%}
 setter HTMLImageElement::width();
+
+getter HTMLImageElement::naturalWidth()
+%{
+	return image_dimension(ctx, ((node_private_t *)priv)->node, true, true);
+%}
+
+getter HTMLImageElement::naturalHeight()
+%{
+	return image_dimension(ctx, ((node_private_t *)priv)->node, false, true);
+%}
+
+getter HTMLImageElement::complete()
+%{
+	dom_node *node = ((node_private_t *)priv)->node;
+	struct content_html_object *request = image_request(node);
+	dom_string *src = NULL;
+	bool complete = request && request->complete;
+	if (dom_element_get_attribute(node, corestring_dom_src, &src) == DOM_NO_ERR &&
+	    (!src || dom_string_byte_length(src) == 0))
+		complete = true;
+	dom_string_unref(src);
+	if (!request) {
+		hlcache_handle *content = image_content(node);
+		if (content && content_get_status(content) == CONTENT_STATUS_DONE)
+			complete = true;
+	}
+	duk_push_boolean(ctx, complete);
+	return 1;
+%}

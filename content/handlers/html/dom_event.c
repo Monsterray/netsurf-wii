@@ -748,6 +748,34 @@ dom_default_action_DOMSubtreeModified_cb(struct dom_event *evt, void *pw)
 }
 
 
+/* Attribute mutations reach the document default-action hook even for detached
+ * nodes, so src properties and setAttribute use the same image loading path.
+ */
+static void dom_default_action_DOMAttrModified_cb(struct dom_event *evt, void *pw)
+{
+	html_content *html = pw;
+	dom_event_target *node = NULL;
+	dom_string *name = NULL, *src = NULL;
+	dom_html_element_type type;
+
+	if (!html->jsthread)
+		return;
+	if (dom_event_get_target(evt, &node) != DOM_NO_ERR || !node)
+		return;
+	if (dom_mutation_event_get_attr_name(evt, &name) == DOM_NO_ERR && name &&
+	    dom_string_isequal(name, corestring_dom_src) &&
+	    dom_html_element_get_tag_type(node, &type) == DOM_NO_ERR &&
+	    type == DOM_HTML_ELEMENT_TYPE_IMG &&
+	    dom_mutation_event_get_new_value(evt, &src) == DOM_NO_ERR) {
+		/* libdom dispatches this event before committing the new attribute. */
+		if (!html_fetch_image(html, (dom_node *)node, src))
+			NSLOG(netsurf, WARNING, "Unable to start image request");
+	}
+	dom_string_unref(src);
+	dom_string_unref(name);
+	dom_node_unref(node);
+}
+
 /**
  * callback for default action finished
  */
@@ -771,7 +799,9 @@ html_dom_event_fetcher(dom_string *type,
 	      "phase:%d type:%s", phase, dom_string_data(type));
 
 	if (phase == DOM_DEFAULT_ACTION_END) {
-		if (dom_string_isequal(type, corestring_dom_DOMNodeInserted)) {
+		if (dom_string_isequal(type, corestring_dom_DOMAttrModified)) {
+			return dom_default_action_DOMAttrModified_cb;
+		} else if (dom_string_isequal(type, corestring_dom_DOMNodeInserted)) {
 			return dom_default_action_DOMNodeInserted_cb;
 		} else if (dom_string_isequal(type, corestring_dom_DOMNodeInsertedIntoDocument)) {
 			return dom_default_action_DOMNodeInsertedIntoDocument_cb;

@@ -46,6 +46,7 @@
 #include "html/box.h"
 #include "html/box_inspect.h"
 #include "html/object.h"
+#include "javascript/js.h"
 
 /* break reference loop */
 static void html_object_refresh(void *p);
@@ -135,18 +136,30 @@ html_object_nobox_callback(hlcache_handle *object,
 			   void *pw)
 {
 	struct content_html_object *chobject = pw;
+	html_content *html = (html_content *)chobject->parent;
+	const char *type = NULL;
 
 	switch (event->type) {
+	case CONTENT_MSG_DONE:
+		chobject->complete = true;
+		type = "load";
+		break;
 	case CONTENT_MSG_ERROR:
 		hlcache_handle_release(object);
-
 		chobject->content = NULL;
+		chobject->complete = true;
+		type = "error";
 		break;
 
 	default:
 		break;
 	}
 
+	if (type && chobject->node && html->jsthread) {
+		dom_node *node = dom_node_ref(chobject->node);
+		js_fire_event(html->jsthread, type, html->document, node);
+		dom_node_unref(node);
+	}
 	return NSERROR_OK;
 }
 
@@ -699,6 +712,7 @@ nserror html_object_free_objects(html_content *html)
 		}
 
 		html->object_list = victim->next;
+		dom_node_unref(victim->node);
 		free(victim);
 	}
 	return NSERROR_OK;
@@ -706,12 +720,13 @@ nserror html_object_free_objects(html_content *html)
 
 
 /* exported interface documented in html/object.h */
-bool
-html_fetch_object(html_content *c,
+static bool
+html_fetch_object_internal(html_content *c,
 		  nsurl *url,
 		  struct box *box,
 		  content_type permitted_types,
-		  bool background)
+		  bool background,
+		  dom_node *node)
 {
 	struct content_html_object *object;
 	hlcache_handle_callback object_callback;
@@ -742,6 +757,7 @@ html_fetch_object(html_content *c,
 	object->box = box;
 	object->permitted_types = permitted_types;
 	object->background = background;
+	object->node = dom_node_ref(node);
 
 	error = hlcache_handle_retrieve(url,
 					HLCACHE_RETRIEVE_SNIFF_TYPE,
@@ -753,8 +769,9 @@ html_fetch_object(html_content *c,
 					object->permitted_types,
 					&object->content);
 	if (error != NSERROR_OK) {
+		dom_node_unref(object->node);
 		free(object);
-		return error != NSERROR_NOMEM;
+		return node != NULL ? false : error != NSERROR_NOMEM;
 	}
 
 	/* add to content object list */
@@ -768,4 +785,48 @@ html_fetch_object(html_content *c,
 	}
 
 	return true;
+}
+
+/* exported interface documented in html/object.h */
+bool html_fetch_object(html_content *html, nsurl *url, struct box *box,
+		content_type types, bool background)
+{
+	return html_fetch_object_internal(html, url, box, types, background, NULL);
+}
+
+struct content_html_object *html_image_object(html_content *html, dom_node *node)
+{
+	struct content_html_object *object;
+	for (object = html->object_list; object; object = object->next)
+		if (object->node == node)
+			return object;
+	return NULL;
+}
+
+bool html_fetch_image(html_content *html, dom_node *node, dom_string *src)
+{
+	nsurl *url;
+	nserror error;
+	bool result;
+	struct content_html_object *previous = html_image_object(html, node);
+
+	/* A new source supersedes the old request and its pending events. */
+	if (previous) {
+		dom_node_unref(previous->node);
+		previous->node = NULL;
+		if (previous->content && !previous->complete)
+			hlcache_handle_abort(previous->content);
+		if (previous->content) {
+			hlcache_handle_release(previous->content);
+			previous->content = NULL;
+		}
+	}
+	if (!src || dom_string_byte_length(src) == 0)
+		return true;
+	error = nsurl_join(html->base_url, dom_string_data(src), &url);
+	if (error != NSERROR_OK)
+		return false;
+	result = html_fetch_object_internal(html, url, NULL, CONTENT_IMAGE, false, node);
+	nsurl_unref(url);
+	return result;
 }

@@ -93,6 +93,8 @@ getter HTMLElement::onloadedmetadata();
 setter HTMLElement::onloadedmetadata();
 getter HTMLElement::onloadstart();
 setter HTMLElement::onloadstart();
+getter HTMLElement::onerror();
+setter HTMLElement::onerror();
 getter HTMLElement::onload();
 setter HTMLElement::onload();
 getter HTMLElement::onmousedown();

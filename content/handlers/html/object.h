@@ -28,6 +28,8 @@ struct html_content;
 struct browser_window;
 struct box;
 struct nsurl;
+struct dom_node;
+struct dom_string;
 
 /**
  * Start a fetch for an object required by a page.
@@ -44,6 +46,12 @@ struct nsurl;
  * \return true on success, false on memory exhaustion
  */
 bool html_fetch_object(struct html_content *c, struct nsurl *url, struct box *box, content_type permitted_types, bool background);
+
+/** Fetch an image node's new src, including detached images. */
+bool html_fetch_image(struct html_content *html, struct dom_node *node, struct dom_string *src);
+
+/** Latest script-driven image request, or NULL if none. */
+struct content_html_object *html_image_object(struct html_content *html, struct dom_node *node);
 
 /**
  * release memory of content objects associated with a HTML content

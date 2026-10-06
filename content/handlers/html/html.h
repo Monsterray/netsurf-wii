@@ -96,6 +96,8 @@ struct content_html_object {
 
 	struct hlcache_handle *content;  /**< Content, or 0. */
 	struct box *box;  /**< Node in box tree containing it. */
+	struct dom_node *node; /**< Image node for a script-driven fetch. */
+	bool complete; /**< Script-driven fetch completed or failed. */
 	/** Bitmap of acceptable content types */
 	content_type permitted_types;
 	bool background;  /**< This object is a background image. */

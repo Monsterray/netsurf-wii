@@ -101,3 +101,14 @@ DOMTokenList.prototype.toString = function () {
 
 // Inherit the same toString for settable lists
 DOMSettableTokenList.prototype.toString = DOMTokenList.prototype.toString;
+
+// Image is the named constructor for an ordinary HTML image element.
+if (typeof Image === "undefined") {
+  this.Image = function Image(width, height) {
+    var image = document.createElement("img");
+    if (arguments.length > 0) image.width = Number(width) >>> 0;
+    if (arguments.length > 1) image.height = Number(height) >>> 0;
+    return image;
+  };
+  this.Image.prototype = HTMLImageElement.prototype;
+}
