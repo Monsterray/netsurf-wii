@@ -25,6 +25,8 @@
 #define NETSURF_HTML_OBJECT_H
 
 struct html_content;
+
+void html_object_free_box_objects(struct html_content *html, void *context);
 struct browser_window;
 struct box;
 struct nsurl;

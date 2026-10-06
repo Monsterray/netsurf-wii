@@ -62,6 +62,7 @@ struct box_construct_ctx {
 	box_construct_complete_cb cb;	/**< Callback to invoke on completion */
 
 	int *bctx;			/**< talloc context */
+	bool synchronous;
 };
 
 /**
@@ -636,6 +637,9 @@ box_construct_element(struct box_construct_ctx *ctx, bool *convert_children)
 		/* Invalidate associated gadget, if any */
 		if (box->gadget != NULL) {
 			box->gadget->box = NULL;
+			/* Controls outside a form have no other owner. */
+			if (box->gadget->form == NULL)
+				form_free_control(box->gadget);
 			box->gadget = NULL;
 		}
 
@@ -1308,7 +1312,7 @@ static void convert_xml_to_box(struct box_construct_ctx *ctx)
 			free(ctx);
 			return;
 		}
-	} while (++num_processed < max_processed_before_yield);
+	} while (ctx->synchronous || ++num_processed < max_processed_before_yield);
 
 	/* More work to do: schedule a continuation */
 	guit->misc->schedule(0, (void *)convert_xml_to_box, ctx);
@@ -1344,12 +1348,37 @@ dom_to_box(dom_node *n,
 	ctx->root_box = NULL;
 	ctx->cb = cb;
 	ctx->bctx = c->bctx;
+	ctx->synchronous = false;
 
 	*box_conversion_context = ctx;
 
 	return guit->misc->schedule(0, (void *)convert_xml_to_box, ctx);
 }
 
+
+/* Run the existing converter without yielding while replacing a live tree. */
+static void box_rebuild_done(html_content *html, bool success)
+{
+	bool *result = html->box_conversion_context;
+	*result = success;
+	html->box_conversion_context = NULL;
+}
+
+bool dom_to_box_sync(dom_node *node, html_content *html)
+{
+	struct box_construct_ctx *ctx = calloc(1, sizeof(*ctx));
+	bool success = false;
+	if (ctx == NULL)
+		return false;
+	ctx->content = html;
+	ctx->n = dom_node_ref(node);
+	ctx->cb = box_rebuild_done;
+	ctx->bctx = html->bctx;
+	ctx->synchronous = true;
+	html->box_conversion_context = &success;
+	convert_xml_to_box(ctx);
+	return success;
+}
 
 /* exported function documented in html/box_construct.h */
 nserror cancel_dom_to_box(void *box_conversion_context)

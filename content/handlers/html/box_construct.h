@@ -89,6 +89,9 @@ nserror dom_to_box(struct dom_node *n, struct html_content *c, box_construct_com
  */
 nserror cancel_dom_to_box(void *box_conversion_context);
 
+/** Convert a replacement tree without exposing a partly built layout. */
+bool dom_to_box_sync(struct dom_node *node, struct html_content *html);
+
 
 /**
  * Retrieve the box for a dom node, if there is one

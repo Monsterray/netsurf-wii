@@ -38,6 +38,8 @@
 #include "html/interaction.h"
 #include "html/box.h"
 #include "html/box_manipulate.h"
+#include "html/box_construct.h"
+#include "utils/corestrings.h"
 
 
 /**
@@ -49,6 +51,11 @@
 static int box_talloc_destructor(struct box *b)
 {
 	struct html_scrollbar_data *data;
+
+	if (!(b->flags & CLONE) && b->gadget != NULL) {
+		form_free_control(b->gadget);
+		b->gadget = NULL;
+	}
 
 	if ((b->flags & STYLE_OWNED) && b->style != NULL) {
 		css_computed_style_destroy(b->style);
@@ -66,6 +73,10 @@ static int box_talloc_destructor(struct box *b)
 	lwc_string_unref(b->id);
 
 	if (b->node != NULL) {
+		void *old;
+		if (box_for_node(b->node) == b)
+			dom_node_set_user_data(b->node,
+				corestring_dom___ns_key_box_node_data, NULL, NULL, &old);
 		dom_node_unref(b->node);
 	}
 
@@ -233,8 +244,10 @@ void box_free(struct box *box)
 void box_free_box(struct box *box)
 {
 	if (!(box->flags & CLONE)) {
-		if (box->gadget)
+		if (box->gadget) {
 			form_free_control(box->gadget);
+			box->gadget = NULL;
+		}
 		if (box->scroll_x != NULL)
 			scrollbar_destroy(box->scroll_x);
 		if (box->scroll_y != NULL)

@@ -120,6 +120,8 @@ typedef struct html_content {
 
 	/** Whether a layout (reflow) is in progress */
 	bool reflowing;
+	bool layout_dirty; /**< A coalesced layout update is scheduled. */
+	bool rebuilding; /**< A live DOM layout replacement is in progress. */
 
 	/** Whether an initial layout has been done */
 	bool had_initial_layout;
@@ -235,6 +237,9 @@ void html__redraw_a_box(html_content *htmlc, struct box *box);
  * \param htmlc Content to convert
  */
 void html_finish_conversion(html_content *htmlc);
+
+/** Schedule a coalesced layout update for a connected DOM mutation. */
+void html_dom_changed(html_content *html, dom_node *node);
 
 
 /**

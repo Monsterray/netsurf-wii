@@ -58,6 +58,7 @@
 #include "desktop/gui_internal.h"
 
 #include "html/html.h"
+#include "css/select.h"
 #include "html/private.h"
 #include "html/dom_event.h"
 #include "html/css.h"
@@ -352,19 +353,9 @@ void html_finish_conversion(html_content *htmlc)
 		return;
 	}
 
-	/* If we already have a selection context, then we have already
-	 * "finished" conversion.  We can get here twice if e.g. some JS
-	 * adds a new stylesheet, and the stylesheet gets added after
-	 * the HTML content is initially finished.
-	 *
-	 * If we didn't do this, the HTML content would try to rebuild the
-	 * box tree for the html content when this new stylesheet is ready.
-	 * NetSurf has no concept of dynamically changing documents, so this
-	 * would break badly.
-	 */
+	/* A stylesheet arriving after initial conversion updates the live tree. */
 	if (htmlc->select_ctx != NULL) {
-		NSLOG(netsurf, INFO,
-				"Ignoring style change: NS layout is static.");
+		html_dom_changed(htmlc, (dom_node *)htmlc->document);
 		return;
 	}
 
@@ -1101,6 +1092,184 @@ static void html_reformat(struct content *c, int width, int height)
 }
 
 
+/* Discard box links and selector caches, including nodes hidden in the old tree. */
+static void html_invalidate_layout(dom_node *root)
+{
+	dom_node *node = dom_node_ref(root);
+	while (node != NULL) {
+		dom_node *next = NULL;
+		dom_node_type type;
+		void *old;
+		if (dom_node_get_node_type(node, &type) == DOM_NO_ERR &&
+		    type == DOM_ELEMENT_NODE) {
+			nscss_invalidate_node(node);
+			dom_node_set_user_data(node, corestring_dom___ns_key_box_node_data,
+					NULL, NULL, &old);
+		}
+		dom_node_get_first_child(node, &next);
+		while (next == NULL && node != root) {
+			dom_node *parent = NULL;
+			dom_node_get_next_sibling(node, &next);
+			if (next != NULL)
+				break;
+			dom_node_get_parent_node(node, &parent);
+			dom_node_unref(node);
+			node = parent;
+			if (node == NULL)
+				break;
+		}
+		dom_node_unref(node);
+		node = next;
+	}
+}
+
+/* Walk the existing tree without allocating another list of its boxes. */
+static void html_restore_box_links(struct box *root)
+{
+	struct box *box = root;
+	while (box != NULL) {
+		if (box->node != NULL && !(box->flags & CLONE)) {
+			void *old;
+			dom_node_set_user_data(box->node,
+				corestring_dom___ns_key_box_node_data, box, NULL, &old);
+		}
+		if (box->children != NULL) {
+			box = box->children;
+			continue;
+		}
+		while (box != root && box->next == NULL)
+			box = box->parent;
+		box = box == root ? NULL : box->next;
+	}
+}
+
+static void html_free_forms(struct form *forms)
+{
+	while (forms != NULL) {
+		struct form *previous = forms->prev;
+		form_free(forms);
+		forms = previous;
+	}
+}
+
+static void html_destroy_frameset(struct content_html_frames *frameset);
+
+static void html_update_layout(void *pw)
+{
+	html_content *html = pw;
+	int *old_context = html->bctx;
+	struct box *old_layout = html->layout;
+	struct form *old_forms = html->forms, *form;
+	struct content_html_iframe *old_iframes = html->iframe;
+	css_select_ctx *old_select = html->select_ctx;
+	dom_node *root = NULL;
+	bool success = false;
+
+	html->layout_dirty = false;
+	if (!html->bw || html->aborted || html->frameset ||
+	    html->box_conversion_context || html->reflowing || html->rebuilding)
+		return;
+	/* Live frame windows retain box pointers. Keep their existing layout until
+	 * frame creation/removal can be updated together with the box tree. */
+	for (struct content_html_iframe *frame = old_iframes; frame; frame = frame->next) {
+		if (frame->box && frame->box->iframe)
+			return;
+	}
+	if (dom_document_get_document_element(html->document, &root) != DOM_NO_ERR || !root)
+		return;
+	html->bctx = talloc_zero(NULL, int);
+	if (!html->bctx) {
+		dom_node_unref(root);
+		html->bctx = old_context;
+		return;
+	}
+	html->rebuilding = true;
+	html->layout = NULL;
+	html->iframe = NULL;
+	html->forms = html_forms_get_forms(html->encoding, (dom_html_document *)html->document);
+	html->select_ctx = NULL;
+	html_invalidate_layout(root);
+	if (html_css_new_selection_context(html, &html->select_ctx) != NSERROR_OK)
+		goto finished;
+	for (form = html->forms; form != NULL; form = form->prev) {
+		nsurl *action;
+		const char *address = form->action && form->action[0] ? form->action :
+			nsurl_access(content_get_url(&html->base));
+		if (nsurl_join(html->base_url, address, &action) != NSERROR_OK)
+			goto finished;
+		free(form->action);
+		form->action = strdup(nsurl_access(action));
+		nsurl_unref(action);
+		if (!form->action)
+			goto finished;
+	}
+	success = dom_to_box_sync(root, html) && html->frameset == NULL;
+finished:
+	dom_node_unref(root);
+	if (!success) {
+		if (html->frameset) {
+			html_destroy_frameset(html->frameset);
+			html->frameset = NULL;
+		}
+		html_object_free_box_objects(html, html->bctx);
+		talloc_free(html->bctx);
+		html_free_forms(html->forms);
+		if (html->select_ctx)
+			css_select_ctx_destroy(html->select_ctx);
+		html->bctx = old_context;
+		html->layout = old_layout;
+		html->forms = old_forms;
+		html->iframe = old_iframes;
+		html->select_ctx = old_select;
+		html_restore_box_links(old_layout);
+		NSLOG(netsurf, WARNING, "Unable to rebuild changed document");
+	} else {
+		html_set_drag_type(html, HTML_DRAG_NONE,
+			(union html_drag_owner){.no_owner = true}, NULL);
+		html_set_focus(html, HTML_FOCUS_SELF,
+			(union html_focus_owner){.self = true}, true, 0, 0, 0, NULL);
+		if (html->base.textsearch.context) {
+			content_textsearch_destroy(html->base.textsearch.context);
+			html->base.textsearch.context = NULL;
+			free(html->base.textsearch.string);
+			html->base.textsearch.string = NULL;
+		}
+		selection_clear(html->sel, false);
+		html->selection_type = HTML_SELECTION_NONE;
+		html->selection_owner.none = true;
+		html->visible_select_menu = NULL;
+		html_object_free_box_objects(html, old_context);
+		talloc_free(old_context);
+		html_free_forms(old_forms);
+		css_select_ctx_destroy(old_select);
+		content__reformat(&html->base, false,
+			html->base.available_width, html->base.available_height);
+		content__request_redraw(&html->base, 0, 0,
+			html->base.width, html->base.height);
+	}
+	html->rebuilding = false;
+}
+
+void html_dom_changed(html_content *html, dom_node *node)
+{
+	if (!html->had_initial_layout || !html->bw || html->rebuilding ||
+	    html->reflowing || html->layout_dirty || html->aborted)
+		return;
+	/* Detached feature probes and fragment parsing must not rebuild the page. */
+	dom_node_ref(node);
+	while (node != NULL && node != (dom_node *)html->document) {
+		dom_node *parent = NULL;
+		dom_node_get_parent_node(node, &parent);
+		dom_node_unref(node);
+		node = parent;
+	}
+	if (node != NULL) {
+		dom_node_unref(node);
+		html->layout_dirty = guit->misc->schedule(50, html_update_layout, html) == NSERROR_OK;
+	}
+}
+
+
 /**
  * Redraw a box.
  *
@@ -1202,9 +1371,10 @@ static void html_free_layout(html_content *htmlc)
 static void html_destroy(struct content *c)
 {
 	html_content *html = (html_content *) c;
-	struct form *f, *g;
 
 	NSLOG(netsurf, INFO, "content %p", c);
+
+	guit->misc->schedule(-1, html_update_layout, html);
 
 	/* If we're still converting a layout, cancel it */
 	if (html->box_conversion_context != NULL) {
@@ -1214,13 +1384,6 @@ static void html_destroy(struct content *c)
 	}
 
 	selection_destroy(html->sel);
-
-	/* Destroy forms */
-	for (f = html->forms; f != NULL; f = g) {
-		g = f->prev;
-
-		form_free(f);
-	}
 
 	imagemap_destroy(html);
 
@@ -1299,8 +1462,9 @@ static void html_destroy(struct content *c)
 	/* Free objects */
 	html_object_free_objects(html);
 
-	/* free layout */
+	/* Boxes own widgets, which unlink themselves from their forms. */
 	html_free_layout(html);
+	html_free_forms(html->forms);
 }
 
 
@@ -1355,6 +1519,8 @@ static nserror html_close(struct content *c)
 	html_content *htmlc = (html_content *) c;
 	nserror ret = NSERROR_OK;
 
+	guit->misc->schedule(-1, html_update_layout, htmlc);
+	htmlc->layout_dirty = false;
 	selection_clear(htmlc->sel, false);
 
 	/* clear the html content reference to the browser window */

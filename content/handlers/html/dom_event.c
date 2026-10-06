@@ -657,6 +657,7 @@ dom_default_action_DOMNodeInserted_cb(struct dom_event *evt, void *pw)
 			}
 		}
 	}
+	html_dom_changed(htmlc, (dom_node *)node);
 	dom_node_unref(node);
 }
 
@@ -738,11 +739,15 @@ dom_default_action_DOMSubtreeModified_cb(struct dom_event *evt, void *pw)
 			case DOM_HTML_ELEMENT_TYPE_TEXTAREA:
 			case DOM_HTML_ELEMENT_TYPE_INPUT:
 				html_texty_element_update(htmlc, (dom_node *)node);
-				fallthrough;
+				/* The widget already updates its text. Replacing it here
+				 * would discard the caret on every keystroke. */
+				dom_node_unref(node);
+				return;
 			default:
 				break;
 			}
 		}
+		html_dom_changed(htmlc, (dom_node *)node);
 		dom_node_unref(node);
 	}
 }
@@ -756,21 +761,26 @@ static void dom_default_action_DOMAttrModified_cb(struct dom_event *evt, void *p
 	html_content *html = pw;
 	dom_event_target *node = NULL;
 	dom_string *name = NULL, *src = NULL;
-	dom_html_element_type type;
+	dom_html_element_type type = DOM_HTML_ELEMENT_TYPE__UNKNOWN;
 
 	if (!html->jsthread)
 		return;
 	if (dom_event_get_target(evt, &node) != DOM_NO_ERR || !node)
 		return;
+	dom_html_element_get_tag_type(node, &type);
 	if (dom_mutation_event_get_attr_name(evt, &name) == DOM_NO_ERR && name &&
 	    dom_string_isequal(name, corestring_dom_src) &&
-	    dom_html_element_get_tag_type(node, &type) == DOM_NO_ERR &&
 	    type == DOM_HTML_ELEMENT_TYPE_IMG &&
 	    dom_mutation_event_get_new_value(evt, &src) == DOM_NO_ERR) {
 		/* libdom dispatches this event before committing the new attribute. */
 		if (!html_fetch_image(html, (dom_node *)node, src))
 			NSLOG(netsurf, WARNING, "Unable to start image request");
 	}
+	/* Value edits use the existing widget sync path; style/class changes still
+	 * rebuild. Attribute events arrive before the new value is committed. */
+	if (!(name && dom_string_isequal(name, corestring_dom_value) &&
+	      (type == DOM_HTML_ELEMENT_TYPE_INPUT || type == DOM_HTML_ELEMENT_TYPE_TEXTAREA)))
+		html_dom_changed(html, (dom_node *)node);
 	dom_string_unref(src);
 	dom_string_unref(name);
 	dom_node_unref(node);

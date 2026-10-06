@@ -54,6 +54,8 @@ css_computed_style *nscss_get_blank_style(nscss_select_ctx *ctx,
 		const css_computed_style *parent);
 
 
+void nscss_invalidate_node(dom_node *node);
+
 css_error named_ancestor_node(void *pw, void *node,
 		const css_qname *qname, void **ancestor);
 

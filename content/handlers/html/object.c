@@ -21,6 +21,8 @@
  * Processing for html content object operations.
  */
 
+#include "utils/talloc.h"
+
 #include <assert.h>
 #include <ctype.h>
 #include <stdint.h>
@@ -718,6 +720,32 @@ nserror html_object_free_objects(html_content *html)
 	return NSERROR_OK;
 }
 
+
+/* Release requests owned by a retired box tree. Detached Image requests stay. */
+void html_object_free_box_objects(html_content *html, void *context)
+{
+	struct content_html_object **link = &html->object_list;
+	while (*link != NULL) {
+		struct content_html_object *object = *link;
+		if (object->box == NULL || talloc_parent(object->box) != context) {
+			link = &object->next;
+			continue;
+		}
+		if (object->content != NULL) {
+			if (content_get_status(object->content) != CONTENT_STATUS_DONE)
+				html->base.active--;
+			if (content_get_type(object->content) == CONTENT_HTML)
+				guit->misc->schedule(-1, html_object_refresh, object);
+			if (html->bw && content_get_type(object->content) != CONTENT_NONE)
+				content_close(object->content);
+			hlcache_handle_release(object->content);
+		}
+		*link = object->next;
+		dom_node_unref(object->node);
+		free(object);
+		html->num_objects--;
+	}
+}
 
 /* exported interface documented in html/object.h */
 static bool

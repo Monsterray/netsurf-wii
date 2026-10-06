@@ -1744,7 +1744,7 @@ css_error set_libcss_node_data(void *pw, void *node, void *libcss_node_data)
 		return CSS_NOMEM;
 	}
 
-	assert(old_node_data == NULL);
+	assert(libcss_node_data == NULL || old_node_data == NULL);
 
 	return CSS_OK;
 }
@@ -1763,4 +1763,13 @@ css_error get_libcss_node_data(void *pw, void *node, void **libcss_node_data)
 	}
 
 	return CSS_OK;
+}
+
+/* Discard cached selectors before selecting a changed document. */
+void nscss_invalidate_node(dom_node *node)
+{
+	void *data = NULL;
+	if (get_libcss_node_data(NULL, node, &data) == CSS_OK && data != NULL)
+		css_libcss_node_data_handler(&selection_handler,
+			CSS_NODE_MODIFIED, NULL, node, NULL, data);
 }
