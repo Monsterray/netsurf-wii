@@ -16,6 +16,8 @@ harness = r'''
 typedef enum {DOM_ELEMENT_NODE, DOM_TEXT_NODE, DOM_CDATA_SECTION_NODE} dom_node_type;
 typedef struct {char *data;size_t length;} dom_string;
 typedef struct node {dom_node_type type;dom_string *text;struct node *child,*next;int refs;} dom_node;
+struct box {struct box *children,*next,*parent;char *text;size_t length;int visible;};
+static int box_visible(struct box *box) {return box->visible;}
 #define DOM_NO_ERR 0
 static dom_node *ref(dom_node *n) {if(n)n->refs++;return n;}
 static void dom_node_unref(dom_node *n) {if(n){assert(n->refs>0);n->refs--;}}
@@ -43,7 +45,14 @@ int main(void) {
  dom_string large={malloc(3*1024*1024),3*1024*1024};assert(large.data);memset(large.data,'x',large.length);
  a.text=&large;a.next=NULL;out=tmpfile();remaining=2*1024*1024;
  wii_site_dom_text(out,&root,&remaining,0);assert(remaining==0 && ftell(out)==2*1024*1024 && a.refs==0);
- fclose(out);free(large.data);puts("PASS: actual DOM text capture byte/depth limits and node references");
+ fclose(out);
+ struct box visible={NULL,NULL,NULL,"score",5,1}, hidden={NULL,NULL,NULL,"hidden",6,0};
+ struct box boxes={&visible,NULL,NULL,NULL,0,1};
+ visible.next=&hidden;visible.parent=hidden.parent=&boxes;
+ out=tmpfile();wii_site_layout_text(out,&boxes);assert(ftell(out)==6);fclose(out);
+ visible.text=large.data;visible.length=large.length;
+ out=tmpfile();wii_site_layout_text(out,&boxes);assert(ftell(out)==2*1024*1024);fclose(out);
+ free(large.data);puts("PASS: actual DOM text capture byte/depth limits and node references");
 }
 '''
 with tempfile.TemporaryDirectory() as directory:

@@ -336,3 +336,19 @@ that assertion before collecting site artifacts. It now retains SD diagnostics
 first and still fails a requested live-log check if delivery did not succeed.
 No firewall settings were changed. The successful retry ran without an active
 Dolphin instance; this comparison alone does not establish the timeout's cause.
+
+## Visible HTML5test results — 6 October 2026
+
+`hardware-rj3oiW` (`20261006-083305-c33266`, 128 seconds) and the final reviewed
+`hardware-NNRf3u` (`20261006-084025-f4e250`, 139 seconds) passed the dynamic
+DOM/style/dataset/hidden regression and rendered the live 73/588 score. The
+checker requires matching DOM and visible-box scores; screenshots include the
+panel and feature table. Both returned to HBC 1.10.0 without an agent/crash,
+restored test configuration and cleared the logging target. System Python
+received 1,629 and 1,630 network log bytes respectively, with `netlog_init=0`.
+
+The first attempt, `hardware-zCnzJJ` (`20261006-083036-8660f4`, 43 seconds),
+lost its connection during package upload before browser launch. Cleanup
+obtained HBC status and restored configuration. The retry passed; no reset,
+power cycle, firewall change or interruption of another project's job was used.
+See [HTML5TEST_RESULTS.md](HTML5TEST_RESULTS.md) for hashes and remaining limits.

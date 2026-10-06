@@ -1,101 +1,95 @@
 # HTML5test results — 6 October 2026
 
-The live [HTML5test.co](https://html5test.co/) release 9 suite now completes with
-**70 out of 588 points** on both Dolphin and the physical dev Wii. The score
-and full feature table were read from the page's live DOM, without modifying
-the site's scripts, injecting results, or substituting a local benchmark.
+The live [HTML5test.co](https://html5test.co/) release 9 suite renders its score
+and full feature table. Dolphin measures **73 out of 588 points**, up from
+70/588. The checker reads the actual live DOM and independently requires the
+same score in visible render boxes. Top and scroll captures confirm the panel
+and table; a DOM-only result no longer passes.
 
-**The screen still shows a blank results area.** JavaScript inserts the score
-and table successfully, but NetSurf's static box tree does not repaint the
-changed DOM or apply the subsequent visibility changes. Completing the test
-engine does not establish that the results UI, or modern websites generally,
-work correctly.
+## Results rendering and capability fixes
 
-## Fixes that allowed the suite to complete
+- Connected DOM mutations coalesce into one layout update after 50 ms. The
+  existing box converter builds a replacement tree without yielding; the
+  previous tree stays allocated until conversion succeeds. Style selection
+  caches are invalidated, newly arrived stylesheets are included, widgets and
+  retired image requests are released, and scheduled work is cancelled on
+  close/destruction. Detached feature probes do not rebuild the page.
+- `element.style` keeps its identity and reads/writes the live inline style
+  attribute. Supported property aliases, priorities and quoted/function values
+  cover the page's display and visibility changes. This is a partial CSSOM:
+  full value validation, canonical serialization and shorthand expansion remain.
+- `dataset` keeps its identity and reads/writes real `data-*` attributes, with
+  camel-case conversion, deletion and current-key enumeration. HTML5test awards
+  two additional points for custom data. The regression verifies storage and
+  enumeration, beyond the site's presence check.
+- The boolean `hidden` property reflects its attribute; the default stylesheet
+  supplies its display behavior. Hidden elements have no render boxes, and
+  clearing the attribute lays them out again. This adds one point.
+- `document.compatMode` reads libdom's real document mode. Collection proxies
+  handle canonical numeric string keys and return `undefined` out of range.
+  Tokenizer/tree-builder checks still fail and earn no additional credit.
 
-- `Window.screen` supplies actual framebuffer display dimensions and depth
-  (previous commit `57cb40118`). The initial missing `screen` exception
-  prevented the browser detector from starting the suite.
-- Element rectangle snapshots expose existing rendered box bounds, borders,
-  and viewport scroll offsets. Boxless elements return empty rectangles.
-  This removes the missing `getBoundingClientRect` exception. The binding is
-  limited by static layout: newly inserted nodes, inline fragments, CSS
-  transforms and fully updated layout still require further work. Unsupported
-  MathML/SVG geometry is not inferred from test attributes.
-- The nsgenbind dependency patch omits methods and properties without a
-  binding. Previously `input.validity` existed but returned `undefined`, so
-  feature detection reached `element.validity.valid` and aborted. Implemented
-  methods and reflected DOM attributes remain exposed.
-- `Image` constructs a real HTML image element. Detached image requests use
-  the existing image cache/decoders, expose intrinsic dimensions and completion,
-  and dispatch load/error events to the node. Replacing a source cancels the
-  previous request and suppresses its events. Libdom dispatches attribute
-  mutation events before committing values; the loader uses the event's new
-  source instead of reading the old attribute.
-- External scripts respect their declared type. Unsupported modules and
-  non-JavaScript data blocks are skipped; an empty type means classic JavaScript.
-  Before this correction HTML5test reported 73/588 because module scripts ran
-  incorrectly as classic scripts. The final 70/588 removes that mistaken credit.
+The earlier screen, image, geometry, script-type and truthful-method-exposure
+fixes are retained. Unsupported modules are still skipped; the new 73 points
+come from dataset/hidden support, rather than executing modules as classic JS.
 
 ## Validation
 
-GX, 640×480, 32-bit framebuffer, JavaScript enabled, hosts filter enabled.
-The manifest contains the local regression followed by HTML5test only;
-BrowserAudit and GPUScore remain deferred.
+GX, 640×480, 32-bit framebuffer, JavaScript enabled and hosts filter enabled.
+Only the local regression and HTML5test were tested; BrowserAudit and GPUScore
+remain deferred. Sources, screenshots and logs stay in ignored `wii/.deps/runs/`.
 
-- Reviewed Dolphin package `dolphin-4gs81y`: local regression PASS and
-  HTML5test **70/588**; the isolated instance closed.
-- Physical `hardware-JQXKXQ`, queue job `20261006-010320-5bbf67`: local
-  regression PASS, HTML5test **70/588**, successful exit in 137 seconds.
-  HBC 1.10.0 answered after exit, no crash was reported, the agent was absent,
-  settings cleanup completed, and the logging target was cleared.
-- The physical receiver used `/usr/bin/python3`: `netlog_init=0` and 2,058
-  network log bytes received. An earlier attempt timed out connecting the
-  receiver; it returned safely to HBC. The harness now collects SD diagnostics
-  before checking network log delivery, so a receiver failure cannot discard
-  available browser results. See [HBC_AGENT_VALIDATION.md](HBC_AGENT_VALIDATION.md).
-- Physical DOL SHA-256:
-  `4e5563121962edf28b2910772b08e25e14868a819f52211379f5e70ec87dca85`.
+- Dolphin `dolphin-98FFGO` established visible results at 70/588;
+  `dolphin-7LcfWW` measured 72/588 after dataset; `dolphin-icWXNf` measured
+  73/588 after hidden support. Each local regression passed and the owned
+  Dolphin instance closed.
+- Physical `hardware-rj3oiW`, queue `20261006-083305-c33266`, passed the local
+  regression and visible 73/588 result in 128 seconds. It returned to HBC
+  1.10.0 without a crash or running agent; settings were restored and the
+  log target cleared. `netlog_init=0`; 1,629 network log bytes were captured.
+- The first physical attempt (`hardware-zCnzJJ`, queue
+  `20261006-083036-8660f4`) lost its connection during package upload, before
+  launching NetSurf. Cleanup obtained HBC status without an agent/crash and
+  restored configuration. The retry used the shared queue normally.
+- A subsequent review keeps ordinary input/textarea edits in the existing
+  widget synchronization path, avoiding replacement of the typing caret.
+  Dolphin `dolphin-TFbUBl` passed that change at 73/588. The final package,
+  with readability-only formatting afterward, passed physical
+  `hardware-NNRf3u`, queue `20261006-084025-f4e250`, in 139 seconds: local
+  regression PASS, visible 73/588, `netlog_init=0`, 1,630 network log bytes,
+  HBC 1.10.0 return, no agent/crash, and configuration/logging cleanup complete.
+- Final physical DOL SHA-256:
+  `4d1acc62a29fe3e9043aadd5eecc7f7c003b831f1326b1fbb44dca48a4f930a6`.
 - Matching ELF SHA-256:
-  `dc5f2180e7af9136bbd9afcc2c060fc84af16ab6d7b8d96add6a7cf666d24a47`.
-- The reviewed package also initializes script-type pointers before error cleanup,
-  after the physical run. Final Dolphin DOL: `0962508f10a8c01f9797d56b36a1ea5ac07e4f5104a9c7240bae2a8baaca8bd7`;
-  matching ELF: `26c653c978ab3c1a96d466bd3eb09f685b8dee054cfd2fbc8c0a0c6a58588aef`.
+  `991109f845b9554a9c6b4e69b9f913a4d03b34be6488a960e4c000408da69ff6`.
 - devkitPPC/GCC 16.1.0 and libogc 3.1.0; agent enabled, crash probe disabled.
 
-The regression checks actual screen information, rendered border geometry,
-empty detached bounds, rectangle mutation, image constructor identity,
-decoded dimensions, load/error events, source replacement, and script types.
-Host checks cover actual generated API exposure, bounded DOM-text capture,
-JavaScript memory/timeout behavior, log formatting, agent lifecycle and cleanup.
-DOM text is streamed with a 2 MiB output limit and depth limit of 128, avoiding
-a second allocation containing all document text. Survey success requires a
-numeric HTML5test score; a finished download or blank page fails the check.
-Raw sources, captures and logs remain in ignored `wii/.deps/runs/`.
+The local regression checks actual rendered dimensions after insertion,
+show/hide and removal; style/dataset identity and live attribute storage;
+collection indexing; screen information; real image decoding/events; and
+script types. Host checks run the actual Duktape and nsgenbind, bounded capture
+helpers, allocator/timeouts, log formatting and agent lifecycle/cleanup.
+Visible-box text is an additional rendering check; screenshots remain necessary
+for clipping, alignment and other visual defects.
 
-## What the score means and what remains
+## Limits and next work
 
-The feature table detects working WebP decoding, parts of Canvas 2D, typed
-arrays and JSON. Networking APIs, storage, workers, modern JavaScript syntax,
-media and many DOM APIs are absent or incomplete. Some checks test only the
-presence of an interface: generated interface constructors can still create
-false positives (for example, MutationObserver). Missing DOM bindings can
-also hide capabilities of the underlying parser. This is a measured test score,
-not a standards-conformance certification.
+- Layout updates rebuild the whole document synchronously. Incremental subtree
+  updates and preserving caret/selection across structural or style changes
+  are the next performance/usability work. Pages with existing live frame
+  windows or framesets retain their static layout until those window lifetimes
+  can be updated safely. Dynamic frame creation/removal remains incomplete.
+- Rectangle snapshots update after scheduled layout. Synchronous layout reads,
+  inline fragments, transforms, zoom and removed-node reads before that update
+  still need work.
+- Tokenizer/tree-builder failures require proper fragment context and Unicode
+  binding diagnostics. Some bindings pass character counts to byte-string APIs.
+- Networking, storage, workers, modern syntax and media remain incomplete.
+  Unimplemented interface constructors can still cause presence-only false
+  positives (for example, MutationObserver/EventSource). No new placeholder
+  interfaces were added to increase the score.
+- The CSP subframe still reports an unsupported parent/postMessage error and
+  finishes through the site's timeout. Cross-frame messaging and CSP are not
+  claimed. GX presentation does not provide WebGL, WebGPU or video codecs.
 
-Priorities from this run:
-
-1. Update layout/styles after DOM mutations so the live results render, then
-   finish geometry for inline fragments, detached nodes, scrolling/zoom and
-   updated layout.
-2. Implement DOM collection indexing and accurate remaining document bindings
-   before interpreting tokenizer/tree-builder failures as parser defects.
-3. Provide real asynchronous networking, storage and scheduling APIs; introduce
-   a bounded modern JavaScript engine before supporting modules and promises.
-4. Continue GX acceleration through the existing renderer boundary. A GX-backed
-   framebuffer does not supply WebGL, WebGPU or modern video decoding APIs.
-
-The CSP subframe still logs an unsupported parent/postMessage error. Its test
-finishes via the site's timeout and reports no CSP support. No CSP enforcement
-or cross-frame messaging support is claimed.
-Hardware priorities remain in [HARDWARE_PLAN.md](HARDWARE_PLAN.md).
+The hardware plan remains in [HARDWARE_PLAN.md](HARDWARE_PLAN.md).

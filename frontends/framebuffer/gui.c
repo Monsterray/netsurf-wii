@@ -71,6 +71,8 @@
 #ifdef GEKKO
 #include <dom/dom.h>
 #include "html/html_save.h"
+#include "html/box.h"
+#include "html/box_inspect.h"
 #include "content/backing_store.h"
 #include "content/request_filter.h"
 #endif
@@ -1033,6 +1035,24 @@ static void wii_site_dom_text(FILE *report, dom_node *node, size_t *remaining, u
 	}
 }
 
+/* Read the renderer's visible text, independently of the live DOM capture. */
+static void wii_site_layout_text(FILE *report, struct box *root)
+{
+	struct box *box = root;
+	size_t remaining = 2 * 1024 * 1024;
+	while (box != NULL && remaining > 1) {
+		if (box->text && box_visible(box)) {
+			size_t length = box->length < remaining - 1 ? box->length : remaining - 1;
+			fwrite(box->text, 1, length, report);
+			fputc('\n', report);
+			remaining -= length + 1;
+		}
+		if (box->children) { box = box->children; continue; }
+		while (box != root && !box->next) box = box->parent;
+		box = box == root ? NULL : box->next;
+	}
+}
+
 static void wii_sites_poll(void *context)
 {
 	static FILE *sites;
@@ -1186,6 +1206,14 @@ static void wii_sites_poll(void *context)
 						wii_site_dom_text(report, root, &remaining, 0);
 					dom_node_unref(root);
 				}
+				fclose(report);
+			}
+			snprintf(path, sizeof(path),
+				 "sd:/apps/netsurf/site-results/%02u-layout.txt", index);
+			report = fopen(path, "wb");
+			if (report) {
+				if (content && content_get_type(content) == CONTENT_HTML)
+					wii_site_layout_text(report, html_get_box_tree(content));
 				fclose(report);
 			}
 			browser_window_stop(gw->bw);

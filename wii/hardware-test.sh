@@ -164,7 +164,7 @@ if [ -f "$RUN/sites-test" ]; then
     hbc get sd:/apps/netsurf/site-results/browser.log "$RUN/site-results/browser.log"
     for index in $(seq 1 "$(wc -l < "$RUN/package/wii-sites.txt" | tr -d ' ')"); do
         printf -v index '%02u' "$index"
-        for suffix in .txt -top.ppm -scroll.ppm -source.html -dom.txt; do
+        for suffix in .txt -top.ppm -scroll.ppm -source.html -dom.txt -layout.txt; do
             hbc get "sd:/apps/netsurf/site-results/$index$suffix" "$RUN/site-results/$index$suffix"
         done
     done

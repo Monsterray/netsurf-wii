@@ -29,10 +29,14 @@ for index, url in enumerate(urls, 1):
         assert fields["title"] == "NetSurf Wii JavaScript PASS", "JavaScript regression did not pass"
     if url.rstrip("/") == "https://html5test.co":
         text = (directory / f"{index:02}-dom.txt").read_text()
-        score = re.search(r"Your browser scores\s*(\d+)\s*out of\s*(\d+)\s*points", text)
+        score = re.search(r"Your\s+browser\s+scores\s*(\d+)\s*out of\s*(\d+)\s*points", text)
         assert score, "HTML5test did not produce a score in the live DOM"
         fields["html5test_score"], fields["html5test_maximum"] = map(int, score.groups())
         assert 0 <= fields["html5test_score"] <= fields["html5test_maximum"]
+        rendered = (directory / f"{index:02}-layout.txt").read_text()
+        rendered_score = re.search(r"Your\s+browser\s+scores\s*(\d+)\s*out of\s*(\d+)\s*points", rendered, re.IGNORECASE)
+        assert rendered_score, "HTML5test score is missing from visible render boxes"
+        assert rendered_score.groups() == score.groups(), "Rendered score differs from the live DOM"
         print(f"HTML5test: {fields['html5test_score']}/{fields['html5test_maximum']}")
     rows.append(fields)
     print(f"{url}: done={fields['done']} {fields['title']} | {fields['status']}")

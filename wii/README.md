@@ -432,3 +432,15 @@ probe. The latter intentionally leaves the main thread sleeping until the
 watchdog returns to HBC. It does not disable interrupts or power off the Wii.
 These are separate tests. See [HBC_AGENT_VALIDATION.md](HBC_AGENT_VALIDATION.md)
 for evidence and limits.
+
+## Live compatibility results
+
+The site survey saves `NN-dom.txt` from the live DOM and `NN-layout.txt` from
+visible render boxes, each bounded to 2 MiB. HTML5test checks require matching
+numeric scores in both captures; inspect the top/scroll screenshots as well.
+For asynchronous suites, set `WII_SITE_MIN_SECONDS=15` or longer rather than
+capturing immediately after the document download completes.
+
+The local JavaScript regression covers dynamic layout, inline styles, dataset,
+hidden elements and removal in addition to the existing image/geometry tests.
+See [HTML5TEST_RESULTS.md](HTML5TEST_RESULTS.md) for measured scores and limits.
