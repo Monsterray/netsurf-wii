@@ -152,3 +152,6 @@ mark {
 	background: yellow;
 	color: black;
 }
+
+/* HTML's hidden attribute participates in ordinary style selection. */
+[hidden] { display: none; }

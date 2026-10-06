@@ -112,3 +112,16 @@ if (typeof Image === "undefined") {
   };
   this.Image.prototype = HTMLImageElement.prototype;
 }
+
+// Reflect the boolean hidden attribute; the UA stylesheet hides the element.
+if (!('hidden' in HTMLElement.prototype)) {
+  Object.defineProperty(HTMLElement.prototype, 'hidden', {
+    enumerable: true,
+    configurable: true,
+    get: function () { return this.hasAttribute('hidden'); },
+    set: function (value) {
+      if (value) this.setAttribute('hidden', '');
+      else this.removeAttribute('hidden');
+    }
+  });
+}

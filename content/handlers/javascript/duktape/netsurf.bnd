@@ -105,6 +105,7 @@ init TrackEvent(struct dom_event *evt::evt);
 
 
 /* html elements */
+#include "CSSStyleDeclaration.bnd"
 #include "HTMLElement.bnd"
 
 /* specialisations of html_element */

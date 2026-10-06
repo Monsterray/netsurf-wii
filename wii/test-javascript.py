@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import re
+import json
 
 root = Path(__file__).resolve().parents[1]
 engine = root / "content/handlers/javascript/duktape"
@@ -198,6 +199,72 @@ int main(void) {
 }
 """
     )
+    generics = (engine / "generics.js").read_text()
+    hidden_reflection = (engine / "polyfill.js").read_text().split(
+        '// Reflect the boolean hidden attribute;', 1)[1]
+    hidden_reflection = hidden_reflection[hidden_reflection.index('if (!'):]
+
+    proxy_probe = """
+var list = NetSurf.makeListProxy({length: 2, item: function(i) { return ['first', 'second'][i] || null; }});
+if (list[0] !== 'first' || list['1'] !== 'second' || list[2] !== undefined ||
+    !('0' in list) || '2' in list || list['01'] !== undefined)
+    throw new Error('collection indexing');
+var backend = {cssText: 'color: red; background-image: url("a;b"); visibility: hidden !important'};
+var style = NetSurf.makeStyleProxy(backend);
+if (style.backgroundImage !== 'url("a;b")' || style.getPropertyPriority('visibility') !== 'important')
+    throw new Error('inline declaration parsing');
+style.visibility = 'visible';
+if (style.visibility !== 'visible' || backend.cssText.indexOf('visibility: visible;') < 0)
+    throw new Error('inline style write');
+backend.cssText = 'width: 20px';
+if (style.width !== '20px' || style.color !== '' || 'transform' in style)
+    throw new Error('inline style read');
+var attributes = {};
+var element = {
+    getAttribute: function (key) { return key in attributes ? attributes[key] : null; },
+    hasAttribute: function (key) { return key in attributes; },
+    setAttribute: function (key, value) { attributes[key] = value; },
+    removeAttribute: function (key) { delete attributes[key]; }
+};
+Object.defineProperty(element, 'attributes', {get: function () {
+    var keys = Object.keys(attributes);
+    return {length: keys.length, item: function (i) { return {nodeName: keys[i]}; }};
+}});
+var dataset = NetSurf.makeDatasetProxy({}, element);
+dataset.userId = 42;
+if (attributes['data-user-id'] !== '42' || dataset.userId !== '42' || !('userId' in dataset))
+    throw new Error('dataset write');
+attributes['data-user-id'] = '43';
+if (dataset.userId !== '43' || Object.keys(dataset).join() !== 'userId')
+    throw new Error('dataset read/enumeration');
+delete attributes['data-user-id'];
+if ('userId' in dataset || dataset.userId !== undefined || Object.keys(dataset).length)
+    throw new Error('dataset external deletion');
+dataset.userId = null;
+delete dataset.userId;
+if ('data-user-id' in attributes) throw new Error('dataset delete');
+var invalid = false;
+try { dataset['bad-name'] = 'x'; } catch (e) { invalid = e.name === 'SyntaxError'; }
+if (!invalid) throw new Error('dataset invalid name');
+var HTMLElement = function () {};
+
+"""
+    harness = harness.replace(' assert(ctx);', ' assert(ctx);\n' +
+        ' assert(duk_peval_string(ctx,' + json.dumps(generics + proxy_probe + hidden_reflection + """
+HTMLElement.prototype.getAttribute = element.getAttribute;
+HTMLElement.prototype.hasAttribute = element.hasAttribute;
+HTMLElement.prototype.setAttribute = element.setAttribute;
+HTMLElement.prototype.removeAttribute = element.removeAttribute;
+var hiddenElement = new HTMLElement();
+if (hiddenElement.hidden) throw new Error('default hidden value');
+hiddenElement.hidden = true;
+if (!hiddenElement.hasAttribute('hidden') || !hiddenElement.hidden)
+    throw new Error('hidden reflection write');
+hiddenElement.hidden = false;
+if (hiddenElement.hidden || hiddenElement.hasAttribute('hidden'))
+    throw new Error('hidden reflection removal');
+""") +
+        ')==0);duk_pop(ctx);')
     (p / "test.c").write_text(harness)
     subprocess.run(
         [
@@ -216,5 +283,5 @@ int main(void) {
     )
     subprocess.run([str(p / "test")], check=True, timeout=20)
 print(
-    "PASS: actual Duktape execution, screen dimensions, cookie capability, title OOM cleanup, strict page globals, listener identity/removal, timeout, bounded allocation, realloc failure, OOM recovery, teardown"
+    "PASS: actual Duktape execution, live styles/dataset, collection indexing, screen dimensions, cookie capability, title OOM cleanup, strict page globals, listener identity/removal, timeout, bounded allocation, realloc failure, OOM recovery, teardown"
 )

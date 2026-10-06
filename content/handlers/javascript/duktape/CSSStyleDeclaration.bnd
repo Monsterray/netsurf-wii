@@ -1,0 +1,53 @@
+/* Inline declarations are backed by the element's live style attribute. */
+class CSSStyleDeclaration {
+	private struct dom_node *node;
+};
+
+init CSSStyleDeclaration(struct dom_node *node)
+%{
+	priv->node = dom_node_ref(node);
+%}
+
+fini CSSStyleDeclaration()
+%{
+	dom_node_unref(priv->node);
+%}
+
+getter CSSStyleDeclaration::cssText()
+%{
+	dom_string *value = NULL;
+	if (dom_element_get_attribute(priv->node, corestring_dom_style, &value) != DOM_NO_ERR)
+		return duk_error(ctx, DUK_ERR_ERROR, "Unable to read inline style");
+	duk_int_t result = duk_safe_call(ctx, inline_style_push_text, value, 0, 1);
+	dom_string_unref(value);
+	if (result != DUK_EXEC_SUCCESS) return duk_throw(ctx);
+	return 1;
+%}
+
+setter CSSStyleDeclaration::cssText()
+%{
+	dom_string *value;
+	duk_size_t length;
+	const char *text = duk_to_lstring(ctx, 0, &length);
+	dom_exception error = dom_string_create((const uint8_t *)text, length, &value);
+	if (error != DOM_NO_ERR)
+		return duk_error(ctx, DUK_ERR_ERROR, "Unable to allocate inline style");
+	error = dom_element_set_attribute(priv->node, corestring_dom_style, value);
+	dom_string_unref(value);
+	if (error != DOM_NO_ERR)
+		return duk_error(ctx, DUK_ERR_ERROR, "Unable to set inline style");
+	return 0;
+%}
+
+prologue CSSStyleDeclaration()
+%{
+#include "utils/corestrings.h"
+
+static duk_ret_t inline_style_push_text(duk_context *ctx, void *pw)
+{
+	dom_string *value = pw;
+	duk_push_lstring(ctx, value ? dom_string_data(value) : "",
+			value ? dom_string_byte_length(value) : 0);
+	return 1;
+}
+%}

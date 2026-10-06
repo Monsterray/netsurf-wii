@@ -654,3 +654,13 @@ getter Document::onwaiting();
 setter Document::onwaiting();
 getter Document::onwheel();
 setter Document::onwheel();
+
+getter Document::compatMode()
+%{
+	dom_document_quirks_mode mode;
+	if (dom_document_get_quirks_mode(priv->parent.node, &mode) != DOM_NO_ERR)
+		return duk_error(ctx, DUK_ERR_ERROR, "Unable to read document mode");
+	duk_push_string(ctx, mode == DOM_DOCUMENT_QUIRKS_MODE_FULL ?
+			"BackCompat" : "CSS1Compat");
+	return 1;
+%}

@@ -109,6 +109,36 @@ badImage.setAttribute("src", "data:image/x-unsupported;base64,AA==");
 replacedImage.onerror = function () { staleImageEvent = true; };
 replacedImage.src = "data:image/x-unsupported;base64,AA==";
 replacedImage.src = "wii-test.png";
+var liveBox = document.createElement("div"), hiddenBox = document.createElement("div");
+liveBox.dataset.userId = "42";
+if (liveBox.dataset !== liveBox.dataset || liveBox.getAttribute("data-user-id") !== "42")
+    throw new Error("dataset write did not reach DOM");
+liveBox.setAttribute("data-user-id", "43");
+if (liveBox.dataset.userId !== "43" || Object.keys(liveBox.dataset).join() !== "userId")
+    throw new Error("dataset is not live");
+delete liveBox.dataset.userId;
+if (liveBox.hasAttribute("data-user-id") || "userId" in liveBox.dataset)
+    throw new Error("dataset deletion failed");
+setTimeout(function () {
+    liveBox.setAttribute("style", "display:none; width:73px; height:21px; background-color:lime");
+    liveBox.appendChild(document.createTextNode("LIVE LAYOUT PASS"));
+    document.body.appendChild(liveBox);
+    hiddenBox.setAttribute("style", "width:39px; height:18px");
+    hiddenBox.hidden = true;
+    if (!hiddenBox.hasAttribute("hidden") || !hiddenBox.hidden)
+        throw new Error("hidden attribute reflection failed");
+    document.body.appendChild(hiddenBox);
+    liveBox.style.display = "block";
+    liveBox.style.visibility = "visible";
+    if (liveBox.style !== liveBox.style ||
+        liveBox.getAttribute("style").indexOf("display: block") < 0)
+        throw new Error("style is not backed by its element");
+    if (document.compatMode !== "CSS1Compat")
+        throw new Error("wrong document compatibility mode");
+    var list = liveBox.childNodes;
+    if (list[0] !== liveBox.firstChild || list[list.length] !== undefined)
+        throw new Error("collection indexing failed");
+}, 1000);
 setTimeout(function () {
     if (!wiiEmptyExecuted || wiiModuleExecuted || wiiDataExecuted)
         throw new Error("script types were not respected");
@@ -121,8 +151,28 @@ setTimeout(function () {
     r.width = -10;
     if (r.left !== r.x - 10 || r.right !== r.x)
         throw new Error("negative rectangle edges wrong");
-    document.title = "NetSurf Wii JavaScript PASS";
-    if (document.title !== "NetSurf Wii JavaScript PASS")
+    var liveRect = liveBox.getBoundingClientRect();
+    if (liveRect.width !== 73 || liveRect.height !== 21)
+        throw new Error("newly inserted box was not laid out: " + liveRect.width + "x" + liveRect.height);
+    var hiddenRect = hiddenBox.getBoundingClientRect();
+    if (hiddenRect.width !== 0 || hiddenRect.height !== 0)
+        throw new Error("hidden element was rendered");
+    hiddenBox.hidden = false;
+    setTimeout(function () {
+        var shownRect = hiddenBox.getBoundingClientRect();
+        if (shownRect.width !== 39 || shownRect.height !== 18)
+            throw new Error("unhidden element was not laid out");
+        document.body.removeChild(hiddenBox);
+        document.body.removeChild(liveBox);
+        setTimeout(function () {
+            var removedRect = liveBox.getBoundingClientRect();
+            if (removedRect.width !== 0 || removedRect.height !== 0)
+                throw new Error("removed node retained a stale box");
+            document.title = "NetSurf Wii JavaScript PASS";
+        }, 1000);
+    }, 1000);
+    document.title = "NetSurf Wii JavaScript checking removal";
+    if (document.title !== "NetSurf Wii JavaScript checking removal")
         throw new Error("title getter failed");
 }, 3000);
 </script>
