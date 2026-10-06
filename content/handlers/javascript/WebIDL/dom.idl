@@ -305,6 +305,8 @@ interface Element : Node {
   Attr? setAttributeNodeNS(Attr attr);
   Attr removeAttributeNode(Attr attr);
 
+  DOMRect getBoundingClientRect();
+
   Element? closest(DOMString selectors);
   boolean matches(DOMString selectors);
 

@@ -34,6 +34,7 @@ binding duk_libdom {
 
 #include "javascript/duktape/duktape.h"
 
+struct rect;
 struct browser_window;
 struct html_content;
 struct dom_node;
@@ -59,6 +60,7 @@ struct dom_html_br_element;
 #include "Console.bnd"
 #include "Window.bnd"
 #include "Screen.bnd"
+#include "DOMRect.bnd"
 #include "Document.bnd"
 #include "Node.bnd"
 #include "NodeList.bnd"

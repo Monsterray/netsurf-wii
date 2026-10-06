@@ -12,6 +12,17 @@ class Element {
 	prologue %{
 #include <utils/corestrings.h>
 #include <dom/bindings/hubbub/parser.h>
+#include "netsurf/types.h"
+#include "netsurf/mouse.h"
+#include "netsurf/window.h"
+#include "netsurf/browser_window.h"
+#include "desktop/browser_private.h"
+#include "desktop/gui_internal.h"
+#include "desktop/scrollbar.h"
+#include "html/private.h"
+#include "html/box.h"
+#include "html/box_construct.h"
+#include "html/box_inspect.h"
 %};
 };
 
@@ -571,5 +582,51 @@ getter Element::attributes()
 		duk_dup(ctx, -1);
 		duk_put_prop_string(ctx, 0, MAGIC(attributes));
 	}
+	return 1;
+%}
+
+method Element::getBoundingClientRect()
+%{
+	dom_node *node = ((node_private_t *)priv)->node;
+	dom_document *document = NULL;
+	struct html_content *html = NULL;
+	struct box *box;
+	struct rect bounds = { 0, 0, 0, 0 };
+	int sx = 0, sy = 0;
+
+	if (dom_node_get_owner_document(node, &document) != DOM_NO_ERR)
+		return duk_error(ctx, DUK_ERR_ERROR, "Unable to read owner document");
+	if (document != NULL) {
+		dom_node_get_user_data(document,
+				corestring_dom___ns_key_html_content_data, &html);
+		dom_node_unref(document);
+	}
+	box = box_for_node(node);
+	/* NetSurf's static layout has no boxes for newly inserted nodes.
+	 * Report only rendered geometry; never infer dimensions from attributes.
+	 */
+	if (html != NULL && html->had_initial_layout && box != NULL) {
+		box_bounds(box, &bounds);
+		bounds.x0 -= box->border[LEFT].width;
+		bounds.y0 -= box->border[TOP].width;
+		bounds.x1 += box->border[RIGHT].width;
+		bounds.y1 += box->border[BOTTOM].width;
+		if (html->bw != NULL) {
+			struct browser_window *bw = html->bw;
+			if (bw->window != NULL)
+				guit->window->get_scroll(bw->window, &sx, &sy);
+			else {
+				sx = scrollbar_get_offset(bw->scroll_x);
+				sy = scrollbar_get_offset(bw->scroll_y);
+			}
+			bounds.x0 -= sx;
+			bounds.x1 -= sx;
+			bounds.y0 -= sy;
+			bounds.y1 -= sy;
+		}
+	}
+	duk_push_pointer(ctx, &bounds);
+	if (dukky_create_object(ctx, PROTO_NAME(DOMRECT), 1) != DUK_EXEC_SUCCESS)
+		return duk_error(ctx, DUK_ERR_ERROR, "Unable to create rectangle");
 	return 1;
 %}

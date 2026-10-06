@@ -1,0 +1,93 @@
+/* Rectangle snapshot binding. Released under the MIT License. */
+class DOMRect {
+	private double x;
+	private double y;
+	private double width;
+	private double height;
+	prologue %{
+#include "netsurf/types.h"
+#include <math.h>
+%};
+};
+
+init DOMRect(struct rect *bounds)
+%{
+	if (bounds != NULL) {
+		priv->x = bounds->x0;
+		priv->y = bounds->y0;
+		priv->width = bounds->x1 - bounds->x0;
+		priv->height = bounds->y1 - bounds->y0;
+	}
+%}
+
+getter DOMRect::x()
+%{
+	duk_push_number(ctx, priv->x);
+	return 1;
+%}
+
+setter DOMRect::x()
+%{
+	priv->x = duk_to_number(ctx, 0);
+	return 0;
+%}
+
+getter DOMRect::y()
+%{
+	duk_push_number(ctx, priv->y);
+	return 1;
+%}
+
+setter DOMRect::y()
+%{
+	priv->y = duk_to_number(ctx, 0);
+	return 0;
+%}
+
+getter DOMRect::width()
+%{
+	duk_push_number(ctx, priv->width);
+	return 1;
+%}
+
+setter DOMRect::width()
+%{
+	priv->width = duk_to_number(ctx, 0);
+	return 0;
+%}
+
+getter DOMRect::height()
+%{
+	duk_push_number(ctx, priv->height);
+	return 1;
+%}
+
+setter DOMRect::height()
+%{
+	priv->height = duk_to_number(ctx, 0);
+	return 0;
+%}
+
+getter DOMRect::top()
+%{
+	duk_push_number(ctx, fmin(priv->y, priv->y + priv->height));
+	return 1;
+%}
+
+getter DOMRect::right()
+%{
+	duk_push_number(ctx, fmax(priv->x, priv->x + priv->width));
+	return 1;
+%}
+
+getter DOMRect::bottom()
+%{
+	duk_push_number(ctx, fmax(priv->y, priv->y + priv->height));
+	return 1;
+%}
+
+getter DOMRect::left()
+%{
+	duk_push_number(ctx, fmin(priv->x, priv->x + priv->width));
+	return 1;
+%}

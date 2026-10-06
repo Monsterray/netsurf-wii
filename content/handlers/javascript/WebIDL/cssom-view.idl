@@ -7,3 +7,15 @@ interface Screen {
   readonly attribute unsigned long colorDepth;
   readonly attribute unsigned long pixelDepth;
 };
+
+// Geometry returned by Element.getBoundingClientRect().
+interface DOMRect {
+  attribute double x;
+  attribute double y;
+  attribute double width;
+  attribute double height;
+  readonly attribute double top;
+  readonly attribute double right;
+  readonly attribute double bottom;
+  readonly attribute double left;
+};
