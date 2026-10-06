@@ -69,6 +69,8 @@
 #include "content/content.h"
 #include "netsurf/content.h"
 #ifdef GEKKO
+#include <dom/dom.h>
+#include "html/html_save.h"
 #include "content/backing_store.h"
 #include "content/request_filter.h"
 #endif
@@ -1001,6 +1003,36 @@ static void wii_site_field(FILE *report, const char *key, const char *value)
 	fputc('\n', report);
 }
 
+/* Stream diagnostic text without allocating a second copy of the entire DOM. */
+static void wii_site_dom_text(FILE *report, dom_node *node, size_t *remaining, unsigned depth)
+{
+	dom_node_type type;
+	dom_node *child = NULL, *next;
+	dom_string *text = NULL;
+
+	if (*remaining == 0 || depth == 128)
+		return;
+	if (dom_node_get_node_type(node, &type) == DOM_NO_ERR &&
+	    (type == DOM_TEXT_NODE || type == DOM_CDATA_SECTION_NODE) &&
+	    dom_node_get_node_value(node, &text) == DOM_NO_ERR && text) {
+		size_t length = dom_string_byte_length(text);
+		if (length > *remaining)
+			length = *remaining;
+		*remaining -= fwrite(dom_string_data(text), 1, length, report);
+		dom_string_unref(text);
+	}
+	if (dom_node_get_first_child(node, &child) != DOM_NO_ERR)
+		return;
+	while (child) {
+		wii_site_dom_text(report, child, remaining, depth + 1);
+		next = NULL;
+		if (*remaining != 0)
+			dom_node_get_next_sibling(child, &next);
+		dom_node_unref(child);
+		child = next;
+	}
+}
+
 static void wii_sites_poll(void *context)
 {
 	static FILE *sites;
@@ -1138,6 +1170,23 @@ static void wii_sites_poll(void *context)
 						fwrite(source, 1, length, report);
 					fclose(report);
 				}
+			}
+			/* Preserve results inserted by scripts; source omits DOM changes. */
+			snprintf(path, sizeof(path),
+				 "sd:/apps/netsurf/site-results/%02u-dom.txt", index);
+			report = fopen(path, "wb");
+			if (report) {
+				if (content && content_get_type(content) == CONTENT_HTML) {
+					dom_node *root = NULL;
+					dom_document *document = html_get_document(content);
+					size_t remaining = 2 * 1024 * 1024;
+					if (document)
+						dom_document_get_document_element(document, (void *)&root);
+					if (root)
+						wii_site_dom_text(report, root, &remaining, 0);
+					dom_node_unref(root);
+				}
+				fclose(report);
 			}
 			browser_window_stop(gw->bw);
 			phase = 2;

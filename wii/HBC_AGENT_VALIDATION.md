@@ -321,3 +321,18 @@ An isolated Dolphin survey (`dolphin-rE5RMI`) using the same production DOL/ELF
 also completed all 13 URLs and passed capture completeness. Its process closed
 and no Dolphin instance remained. Raw results remain ignored. Neither this
 survey nor the physical survey proves login, search, shopping or playback.
+
+## HTML5test completion — 6 October 2026
+
+`hardware-JQXKXQ` (queue `20261006-010320-5bbf67`) completed the local DOM/image
+regression and live HTML5test at 70/588. System-Python log delivery returned
+`netlog_init=0` and captured 2,058 bytes. The 137-second job returned to HBC
+1.10.0 with no crash, no running agent, settings restored and log target cleared.
+Frozen artifacts and hashes are in [HTML5TEST_RESULTS.md](HTML5TEST_RESULTS.md).
+
+The preceding `hardware-F3jb7A` (`20261006-005911-d8e9c2`) also returned safely,
+but its log connection timed out (`-116`). The harness previously stopped at
+that assertion before collecting site artifacts. It now retains SD diagnostics
+first and still fails a requested live-log check if delivery did not succeed.
+No firewall settings were changed. The successful retry ran without an active
+Dolphin instance; this comparison alone does not establish the timeout's cause.

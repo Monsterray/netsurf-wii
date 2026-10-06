@@ -2,6 +2,7 @@
 """Check survey completeness; a completed load does not establish site usability."""
 
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -24,6 +25,15 @@ for index, url in enumerate(urls, 1):
             b"P6\n640 480\n255\n"
         ), "Missing actual screen capture"
         assert len(capture.split(b"\n", 3)[3]) == 640 * 480 * 3, "Truncated capture"
+    if url == "file:///sd:/apps/netsurf/wii-test.html" and complete["javascript"] == "1":
+        assert fields["title"] == "NetSurf Wii JavaScript PASS", "JavaScript regression did not pass"
+    if url.rstrip("/") == "https://html5test.co":
+        text = (directory / f"{index:02}-dom.txt").read_text()
+        score = re.search(r"Your browser scores\s*(\d+)\s*out of\s*(\d+)\s*points", text)
+        assert score, "HTML5test did not produce a score in the live DOM"
+        fields["html5test_score"], fields["html5test_maximum"] = map(int, score.groups())
+        assert 0 <= fields["html5test_score"] <= fields["html5test_maximum"]
+        print(f"HTML5test: {fields['html5test_score']}/{fields['html5test_maximum']}")
     rows.append(fields)
     print(f"{url}: done={fields['done']} {fields['title']} | {fields['status']}")
 (directory / "results.json").write_text(

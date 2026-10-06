@@ -75,6 +75,8 @@ cd /path/to/netsurf-wii
 cross-built under `wii/.deps/optional/prefix`.
 The pinned FIX94 libwupc source is adapted to current libogc and installed
 under `wii/.deps/input/prefix` by `bootstrap-input.sh`.
+The nsgenbind patch omits unimplemented properties and methods from JavaScript
+prototypes, so feature detection does not mistake placeholders for working APIs.
 `bootstrap-browser-deps.sh` creates the local prefixes. They are intentionally
 untracked. The
 rw-r-r-0644 packages are also extracted locally because installing the older
@@ -222,6 +224,8 @@ python3 wii/test-regressions.py
 ./wii/test-render.sh
 python3 wii/test-presentation.py
 python3 wii/test-javascript.py
+python3 wii/test-bindings.py
+python3 wii/test-survey.py
 ./wii/dolphin-test.sh
 ./wii/hardware-test.sh
 ```
@@ -403,8 +407,9 @@ Use `WII_REQUEST_FILTER=hosts WII_JS_TEST=1 WII_RENDERER=gx` with the test
 launchers to exercise the network-blocking boundary and DOM regressions.
 Site surveys also accept `WII_COSMETIC=0` and `WII_BACKGROUND=1` for controlled
 comparisons. Survey artifacts include verbose HTTP/script diagnostics and a
-bounded copy of each page's source; they are local test artifacts and ignored
-by Git.
+bounded copies of each page's source and streamed live DOM text (2 MiB, depth 128). HTML5test surveys
+require a numeric score in the live DOM; a completed download alone fails the
+check. Captures are local test artifacts and ignored by Git.
 
 ### Bounded development shutdown
 

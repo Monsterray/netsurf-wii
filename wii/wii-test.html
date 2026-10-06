@@ -34,6 +34,7 @@ if (wiiSharedFunction() !== 42)
 <div class="box blue"></div>
 <p><img src="wii-test.png" width="128" height="64"></p>
 <div class="tiles"></div>
+<div id="geometry" style="width:100px;height:30px;padding:5px;border:2px solid black"></div>
 <p>PDF export and download smoke check.</p>
 <script>
 
@@ -75,9 +76,55 @@ target.addEventListener("probe", callback, false);
 fire(true);
 if (count !== 2 || ancestors !== 1)
     throw new Error("bubbling listener counts=" + count + "," + ancestors);
-document.title = "NetSurf Wii JavaScript PASS";
-if (document.title !== "NetSurf Wii JavaScript PASS")
-    throw new Error("title getter failed");
+var input = document.createElement("input");
+if ("validity" in input || "checkValidity" in input)
+    throw new Error("unimplemented validation is exposed");
+if (typeof input.setAttribute !== "function" || !("value" in input))
+    throw new Error("implemented input APIs were removed");
+var detached = document.createElement("div").getBoundingClientRect();
+if (detached.width !== 0 || detached.height !== 0)
+    throw new Error("detached rectangle is not empty");
+var wiiEmptyExecuted = false, wiiModuleExecuted = false, wiiDataExecuted = false;
+function scriptProbe(type, flag) {
+    var script = document.createElement("script");
+    script.type = type;
+    script.src = "data:text/javascript,window." + flag + "=true";
+    document.body.appendChild(script);
+}
+scriptProbe("", "wiiEmptyExecuted");
+scriptProbe("module", "wiiModuleExecuted");
+scriptProbe("application/json", "wiiDataExecuted");
+var imageLoaded = false, imageFailed = false, staleImageEvent = false;
+var image = new Image(7, 9), badImage = new Image(), replacedImage = new Image();
+if (!(image instanceof HTMLImageElement) || !(image instanceof Image) ||
+    image.width !== 7 || image.height !== 9 || !image.complete)
+    throw new Error("Image constructor failed");
+image.onload = function () {
+    imageLoaded = this === image && image.naturalWidth === 16 &&
+        image.naturalHeight === 8 && image.complete;
+};
+image.src = "wii-test.png";
+badImage.onerror = function () { imageFailed = badImage.complete; };
+badImage.setAttribute("src", "data:image/x-unsupported;base64,AA==");
+replacedImage.onerror = function () { staleImageEvent = true; };
+replacedImage.src = "data:image/x-unsupported;base64,AA==";
+replacedImage.src = "wii-test.png";
+setTimeout(function () {
+    if (!wiiEmptyExecuted || wiiModuleExecuted || wiiDataExecuted)
+        throw new Error("script types were not respected");
+    if (!imageLoaded || !imageFailed || staleImageEvent)
+        throw new Error("detached image events wrong: " + imageLoaded + "," + imageFailed + "," + staleImageEvent);
+    var r = document.getElementById("geometry").getBoundingClientRect();
+    if (r.width !== 114 || r.height !== 44 ||
+        r.right - r.left !== r.width || r.bottom - r.top !== r.height)
+        throw new Error("border rectangle wrong: " + r.width + "x" + r.height);
+    r.width = -10;
+    if (r.left !== r.x - 10 || r.right !== r.x)
+        throw new Error("negative rectangle edges wrong");
+    document.title = "NetSurf Wii JavaScript PASS";
+    if (document.title !== "NetSurf Wii JavaScript PASS")
+        throw new Error("title getter failed");
+}, 3000);
 </script>
 </body>
 </html>

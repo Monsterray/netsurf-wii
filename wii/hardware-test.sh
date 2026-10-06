@@ -140,14 +140,21 @@ done
 if grep -qx "HBC_AGENT=1" "$RUN/package/build-info.txt"; then
     hbc get sd:/apps/netsurf/wii-lifecycle.txt "$RUN/wii-lifecycle.txt"
     hbc get sd:/apps/netsurf/agent-log-status.txt "$RUN/agent-log-status.txt"
-    if [ -f "$RUN/log-test" ]; then
-        grep -qx 'netlog_init=0' "$RUN/agent-log-status.txt"
-        [ -s "$RUN/agent.log" ] || { echo 'No live agent logs received' >&2; exit 1; }
-    fi
 fi
+# Preserve SD diagnostics even if the separate network log check fails.
+check_agent_log() {
+    if [ -f "$RUN/log-test" ]; then
+        grep -qx 'netlog_init=0' "$RUN/agent-log-status.txt" || {
+            echo 'Agent network log initialization failed; SD diagnostics collected' >&2
+            return 1
+        }
+        [ -s "$RUN/agent.log" ] || { echo 'No live agent logs received' >&2; return 1; }
+    fi
+}
 if [ -f "$RUN/stall-test" ]; then
     hbc get sd:/apps/netsurf/wii-lifecycle.txt "$RUN/wii-lifecycle.txt"
     grep -qx 'stage=shutdown stall probe' "$RUN/wii-lifecycle.txt"
+    check_agent_log
     printf 'Stalled cleanup watchdog returned to HBC: %s\n' "$RUN"
     exit 0
 fi
@@ -157,11 +164,12 @@ if [ -f "$RUN/sites-test" ]; then
     hbc get sd:/apps/netsurf/site-results/browser.log "$RUN/site-results/browser.log"
     for index in $(seq 1 "$(wc -l < "$RUN/package/wii-sites.txt" | tr -d ' ')"); do
         printf -v index '%02u' "$index"
-        for suffix in .txt -top.ppm -scroll.ppm -source.html; do
+        for suffix in .txt -top.ppm -scroll.ppm -source.html -dom.txt; do
             hbc get "sd:/apps/netsurf/site-results/$index$suffix" "$RUN/site-results/$index$suffix"
         done
     done
     python3 "$RUN/check-sites.py" "$RUN/site-results" "$RUN/package/wii-sites.txt"
+    check_agent_log
     printf 'Hardware site artifacts: %s\n' "$RUN"
     exit
 fi
@@ -174,10 +182,12 @@ fi
 }
 if [ -f "$RUN/crash-test" ]; then
     check_mem2
+    check_agent_log
     printf "Crash capture and HBC recovery passed: %s\n" "$RUN"
     exit 0
 fi
 if [ -f "$RUN/exit-test" ]; then
+    check_agent_log
     printf "Cooperative agent exit passed: %s\n" "$RUN"
     exit 0
 fi
@@ -190,4 +200,5 @@ fi
 hbc crash --elf "$RUN/boot.elf" > "$RUN/crash.txt"
 python3 "$RUN/check-smoke.py" "$RUN"
 check_mem2
+check_agent_log
 printf 'Hardware smoke artifacts: %s\n' "$RUN"
