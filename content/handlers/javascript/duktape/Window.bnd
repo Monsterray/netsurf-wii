@@ -479,6 +479,24 @@ getter Window::navigator()
 	return 1;
 %}
 
+getter Window::screen()
+%{
+	if (guit->misc->get_screen_dimensions == NULL) {
+		duk_push_undefined(ctx);
+		return 1;
+	}
+	duk_push_this(ctx);
+	duk_get_prop_string(ctx, -1, MAGIC(Screen));
+	if (duk_is_undefined(ctx, -1)) {
+		duk_pop(ctx);
+		if (dukky_create_object(ctx, PROTO_NAME(SCREEN), 0) != DUK_EXEC_SUCCESS)
+			return duk_error(ctx, DUK_ERR_ERROR, "Unable to create screen object");
+		duk_dup(ctx, -1);
+		duk_put_prop_string(ctx, -3, MAGIC(Screen));
+	}
+	return 1;
+%}
+
 getter Window::name()
 %{
 	const char *name;

@@ -42,6 +42,9 @@ navigator = (engine / "Navigator.bnd").read_text()
 a = navigator.index("getter Navigator::cookieEnabled()")
 a = navigator.index("%{", a) + 2
 cookie_enabled_getter = navigator[a : navigator.index("%}", a)]
+screen = (engine / "Screen.bnd").read_text()
+a = screen.index("static duk_ret_t screen_dimension(")
+screen_dimension = screen[a : screen.index("%}", a)]
 with tempfile.TemporaryDirectory() as directory:
     p = Path(directory)
     for name in ["duktape.c", "duktape.h", "duk_config.h"]:
@@ -94,6 +97,15 @@ static duk_ret_t test_title_getter(duk_context *ctx,void *unused) {
 }
 """
         + """typedef enum {ELF_NONE=0,ELF_CAPTURE=1,ELF_PASSIVE=2,ELF_ONCE=4} event_listener_flags;\n"""
+        + """static int display_width=640, display_height=480, display_depth=24;
+static int display_dimensions(int *w,int *h,int *d) {
+ *w=display_width;*h=display_height;*d=display_depth;return 0;
+}
+#define NSERROR_OK 0
+struct test_misc { int (*get_screen_dimensions)(int *,int *,int *); } test_misc={display_dimensions};
+struct test_gui { struct test_misc *misc; } test_gui={&test_misc}, *guit=&test_gui;
+"""
+        + screen_dimension
         + shuffle
         + event_helpers
         + allocation
@@ -123,6 +135,12 @@ int main(void) {
  duk_put_global_string(ctx,"navigator");
  assert(duk_peval_string(ctx,"navigator.cookieEnabled === true")==0);
  assert(duk_get_boolean(ctx,-1));duk_pop(ctx);
+ screen_dimension(ctx,0);assert(duk_get_int(ctx,-1)==640);duk_pop(ctx);
+ screen_dimension(ctx,1);assert(duk_get_int(ctx,-1)==480);duk_pop(ctx);
+ screen_dimension(ctx,2);assert(duk_get_int(ctx,-1)==24);duk_pop(ctx);
+ display_width=800;display_depth=16;
+ screen_dimension(ctx,0);assert(duk_get_int(ctx,-1)==800);duk_pop(ctx);
+ screen_dimension(ctx,2);assert(duk_get_int(ctx,-1)==16);duk_pop(ctx);
  fake_title.data="title";fake_title.length=5;
  assert(duk_safe_call(ctx,test_title_getter,NULL,0,1)==0);
  assert(title_refs==0 && strcmp(duk_get_string(ctx,-1),"title")==0);duk_pop(ctx);
@@ -198,5 +216,5 @@ int main(void) {
     )
     subprocess.run([str(p / "test")], check=True, timeout=20)
 print(
-    "PASS: actual Duktape execution, cookie capability, title OOM cleanup, strict page globals, listener identity/removal, timeout, bounded allocation, realloc failure, OOM recovery, teardown"
+    "PASS: actual Duktape execution, screen dimensions, cookie capability, title OOM cleanup, strict page globals, listener identity/removal, timeout, bounded allocation, realloc failure, OOM recovery, teardown"
 )

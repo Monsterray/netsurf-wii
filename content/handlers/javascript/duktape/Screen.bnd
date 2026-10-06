@@ -1,0 +1,46 @@
+/* Screen binding. Released under the MIT License. */
+prologue Screen()
+%{
+#include "desktop/gui_internal.h"
+#include "netsurf/misc.h"
+
+static duk_ret_t screen_dimension(duk_context *ctx, unsigned dimension)
+{
+	int size[3] = { 0, 0, 24 };
+	if (guit->misc->get_screen_dimensions != NULL &&
+	    guit->misc->get_screen_dimensions(&size[0], &size[1], &size[2]) != NSERROR_OK)
+		return duk_error(ctx, DUK_ERR_ERROR, "Unable to read display dimensions");
+	duk_push_int(ctx, size[dimension]);
+	return 1;
+}
+%}
+
+getter Screen::width()
+%{
+	return screen_dimension(ctx, 0);
+%}
+
+getter Screen::height()
+%{
+	return screen_dimension(ctx, 1);
+%}
+
+getter Screen::availWidth()
+%{
+	return screen_dimension(ctx, 0);
+%}
+
+getter Screen::availHeight()
+%{
+	return screen_dimension(ctx, 1);
+%}
+
+getter Screen::colorDepth()
+%{
+	return screen_dimension(ctx, 2);
+%}
+
+getter Screen::pixelDepth()
+%{
+	return screen_dimension(ctx, 2);
+%}

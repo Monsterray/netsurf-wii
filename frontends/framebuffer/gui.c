@@ -2768,8 +2768,26 @@ static struct gui_window_table framebuffer_window_table = {
 };
 
 
+static nserror gui_get_screen_dimensions(int *width, int *height, int *depth)
+{
+	enum nsfb_format_e format;
+	if (fbtk == NULL || nsfb_get_geometry(fbtk_get_nsfb(fbtk), width, height, &format) != 0)
+		return NSERROR_INIT_FAILED;
+	/* Packed color bits, without alpha or padding. */
+	switch (format) {
+	case NSFB_FMT_ARGB1555: *depth = 15; break;
+	case NSFB_FMT_RGB565: *depth = 16; break;
+	case NSFB_FMT_I8: *depth = 8; break;
+	case NSFB_FMT_I4: *depth = 4; break;
+	case NSFB_FMT_I1: *depth = 1; break;
+	default: *depth = 24; break;
+	}
+	return NSERROR_OK;
+}
+
 static struct gui_misc_table framebuffer_misc_table = {
 	.schedule = framebuffer_schedule,
+	.get_screen_dimensions = gui_get_screen_dimensions,
 
 	.quit = gui_quit,
 };

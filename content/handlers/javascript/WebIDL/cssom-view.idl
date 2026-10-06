@@ -1,0 +1,9 @@
+// Screen subset of https://www.w3.org/TR/cssom-view-1/
+interface Screen {
+  readonly attribute long width;
+  readonly attribute long height;
+  readonly attribute long availWidth;
+  readonly attribute long availHeight;
+  readonly attribute unsigned long colorDepth;
+  readonly attribute unsigned long pixelDepth;
+};

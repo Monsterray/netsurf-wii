@@ -13,6 +13,7 @@ binding duk_libdom {
 	webidl "dom-parsing.idl";
 	webidl "html.idl";
 	webidl "cssom.idl";
+	webidl "cssom-view.idl";
 	webidl "uievents.idl";
 	webidl "urlutils.idl";
 	webidl "console.idl";
@@ -57,6 +58,7 @@ struct dom_html_br_element;
 #include "EventTarget.bnd"
 #include "Console.bnd"
 #include "Window.bnd"
+#include "Screen.bnd"
 #include "Document.bnd"
 #include "Node.bnd"
 #include "NodeList.bnd"

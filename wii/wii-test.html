@@ -39,6 +39,14 @@ if (wiiSharedFunction() !== 42)
 
 if (navigator.cookieEnabled !== true)
     throw new Error("cookie capability disagrees with cookie support");
+if (screen !== window.screen || screen.width !== 640 || screen.height !== 480 ||
+    screen.availWidth !== 640 || screen.availHeight !== 480 ||
+    screen.colorDepth !== screen.pixelDepth ||
+    (screen.colorDepth !== 24 && screen.colorDepth !== 16))
+    throw new Error("screen does not report the Wii display");
+screen.width = 1;
+if (screen.width !== 640)
+    throw new Error("screen width is writable");
 
 var ancestor = document.createElement("div"),
     target = document.createElement("div"), count = 0, ancestors = 0;

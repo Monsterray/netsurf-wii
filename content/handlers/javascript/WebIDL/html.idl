@@ -1418,6 +1418,7 @@ dictionary DragEventInit : MouseEventInit {
 
   // the user agent
   readonly attribute Navigator navigator;
+  [SameObject] readonly attribute Screen screen;
   [Replaceable, SameObject] readonly attribute External external;
   readonly attribute ApplicationCache applicationCache;
 

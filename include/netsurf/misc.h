@@ -60,6 +60,11 @@ struct gui_misc_table {
 
 	/* Optional entries */
 
+	/** Output display dimensions in CSS pixels and color bits excluding alpha.
+	 * Available area equals the display for frontends without desktop furniture.
+	 */
+	nserror (*get_screen_dimensions)(int *width, int *height, int *depth);
+
 	/**
 	 * called to allow the gui to cleanup.
 	 */
