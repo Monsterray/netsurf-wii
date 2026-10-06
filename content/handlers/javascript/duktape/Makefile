@@ -28,7 +28,7 @@ $(OBJROOT)/duktape/polyfill.js.inc: content/handlers/javascript/duktape/polyfill
 # ensure genbind generates debugging files
 GBFLAGS+=-D
 
-$(OBJROOT)/duktape/binding.h: content/handlers/javascript/duktape/netsurf.bnd $(BINDINGS) $(wildcard content/handlers/javascript/WebIDL/*.idl)
+$(OBJROOT)/duktape/binding.h: content/handlers/javascript/duktape/netsurf.bnd $(BINDINGS) $(wildcard content/handlers/javascript/WebIDL/*.idl) $(shell command -v nsgenbind)
 	$(Q)$(MKDIR) -p $(OBJROOT)/duktape
 	$(VQ)echo " GENBIND: $<"
 	$(Q)nsgenbind $(GBFLAGS) -I content/handlers/javascript/WebIDL $< $(OBJROOT)/duktape

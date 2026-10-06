@@ -43,6 +43,8 @@ clone_at nsgenbind 44c6736937ae
 # NetSurf's buildsystem assumes Linux has /bin/which. macOS does not.
 sed -i.bak 's#$(shell /bin/which $(CC__))#$(shell command -v $(CC__))#' \
 	"$BUILD_SYSTEM/makefiles/Makefile.tools"
+apply_patch_once "$WORKSPACE/nsgenbind" \
+	"$SCRIPT_DIR/patches/nsgenbind-feature-detection.patch"
 apply_patch_once "$WORKSPACE/libdom" \
 	"$SCRIPT_DIR/patches/libdom-event-dispatch.patch"
 apply_patch_once "$WORKSPACE/libnsfb" \

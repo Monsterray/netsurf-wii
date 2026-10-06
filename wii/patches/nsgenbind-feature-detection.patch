@@ -1,0 +1,48 @@
+diff --git a/src/duk-libdom-interface.c b/src/duk-libdom-interface.c
+index 46436c4..e00fc36 100644
+--- a/src/duk-libdom-interface.c
++++ b/src/duk-libdom-interface.c
+@@ -755,6 +755,11 @@ output_prototype_method(struct opctx *outc,
+                         struct ir_operation_entry *operatione)
+ {
+ 
++        /* Feature detection must not find methods without a binding. */
++        if (operatione->method == NULL) {
++                return 0;
++        }
++
+         if (operatione->name != NULL) {
+                 /* normal method on prototype */
+                 output_add_method(outc,
+@@ -798,6 +803,11 @@ output_prototype_attribute(struct opctx *outc,
+                            struct ir_entry *interfacee,
+                            struct ir_attribute_entry *attributee)
+ {
++        /* An undefined-valued placeholder is not an implemented attribute. */
++        if (attributee->getter == NULL) {
++                return 0;
++        }
++
+     if ((attributee->putforwards == NULL) &&
+         (attributee->modifier == WEBIDL_TYPE_MODIFIER_READONLY)) {
+                 return output_populate_ro_property(outc,
+@@ -1403,6 +1413,9 @@ output_interface_operations(struct opctx *outc, struct ir_entry *ife)
+         int res = 0;
+ 
+         for (opc = 0; opc < ife->u.interface.operationc; opc++) {
++                if (ife->u.interface.operationv[opc].method == NULL) {
++                        continue;
++                }
+                 res = output_interface_operation(
+                         outc,
+                         ife,
+@@ -1625,6 +1638,9 @@ output_interface_attributes(struct opctx *outc, struct ir_entry *ife)
+         int attrc;
+ 
+         for (attrc = 0; attrc < ife->u.interface.attributec; attrc++) {
++                if (ife->u.interface.attributev[attrc].getter == NULL) {
++                        continue;
++                }
+                 output_interface_attribute(
+                         outc,
+                         ife,

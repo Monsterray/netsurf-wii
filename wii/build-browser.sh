@@ -46,6 +46,14 @@ for required in \
 	fi
 done
 
+# Require the generator that omits unimplemented API placeholders.
+if ! git -C "$SCRIPT_DIR/.deps/netsurf-workspace/nsgenbind" apply --reverse --check \
+        "$SCRIPT_DIR/patches/nsgenbind-feature-detection.patch" 2>/dev/null ||
+        [ "$SCRIPT_DIR/.deps/netsurf-workspace/nsgenbind/src/duk-libdom-interface.c" -nt "$HOST_TOOL_PREFIX/bin/nsgenbind" ]; then
+    echo 'Rebuild browser dependencies for truthful JavaScript feature detection.' >&2
+    exit 1
+fi
+
 # Do not silently link the old event dispatcher from an existing dependency tree.
 if ! git -C "$SCRIPT_DIR/.deps/netsurf-workspace/libdom" apply --reverse --check \
         "$SCRIPT_DIR/patches/libdom-event-dispatch.patch" 2>/dev/null ||
