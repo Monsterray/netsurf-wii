@@ -112,3 +112,12 @@ probe-free app. All eleven planned hardware checks now have passing runs;
 the earlier staging failure remains recorded, with its cause unresolved.
 Most tested websites still render blank, partial or verification pages. See
 [SITE_COMPATIBILITY.md](SITE_COMPATIBILITY.md) for inspected captures and limits.
+
+## Current submission preparation — 9 October 2026
+
+See [UPSTREAM_SUBMISSIONS.md](UPSTREAM_SUBMISSIONS.md) for the freshly fetched
+upstream base, four independently applicable patch exports, submission
+routing, and changes that need splitting or native validation before sending.
+The old table above describes ownership, not a ready-to-submit patch series.
+HBC-Reborn is now pinned to reviewed 1.10.2 source across SDK builds, CI and
+hardware-test host tooling; previous run versions remain historical evidence.

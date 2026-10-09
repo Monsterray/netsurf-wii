@@ -352,3 +352,15 @@ lost its connection during package upload before browser launch. Cleanup
 obtained HBC status and restored configuration. The retry passed; no reset,
 power cycle, firewall change or interruption of another project's job was used.
 See [HTML5TEST_RESULTS.md](HTML5TEST_RESULTS.md) for hashes and remaining limits.
+
+## HBC-Reborn 1.10.2 SDK — 9 October 2026
+
+The SDK and host-tool revision is now pinned to
+`0c2e3d9f7f8689d9c1dd733ed2d5ec9c6deb70f7` (latest upstream HEAD when checked).
+A rebuilt package passed Dolphin `dolphin-vS2vnq`, including JavaScript/GX,
+PDF/download/cache checks and `stage=return to HBC`. Exact hashes, the initial
+premature smoke assertion and its correction are recorded in
+[UPSTREAM_SUBMISSIONS.md](UPSTREAM_SUBMISSIONS.md). No physical-Wii pass is
+claimed for this package: a foreign lease held the console. The harness now
+refuses an older HBC before staging, and checks agent package SDK provenance.
+Historical 1.10.0 results above remain evidence for those earlier builds.

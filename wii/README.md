@@ -444,3 +444,15 @@ capturing immediately after the document download completes.
 The local JavaScript regression covers dynamic layout, inline styles, dataset,
 hidden elements and removal in addition to the existing image/geometry tests.
 See [HTML5TEST_RESULTS.md](HTML5TEST_RESULTS.md) for measured scores and limits.
+
+### Reviewed HBC-Reborn revision
+
+`hbc-reborn.env` pins HBC-Reborn 1.10.2 (upstream HEAD checked 9 October 2026).
+`build-agent.sh` and hardware tests verify the checkout with `check-hbc.sh`;
+update the checkout before using the SDK. Hardware tests also reject stale
+agent packages and require the leased Wii to report that version before SD
+staging. The installed queue launcher keeps its shared state and runs the
+selected checkout's current queue source. No channel installation is performed.
+CI builds both agent modes using the same pinned SDK. Historical validation
+records retain their original versions. See [UPSTREAM_SUBMISSIONS.md](UPSTREAM_SUBMISSIONS.md)
+for independent patch exports and the remaining submission checks.
