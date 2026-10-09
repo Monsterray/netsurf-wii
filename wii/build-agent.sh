@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 source "$SCRIPT_DIR/env.sh"
 SOURCE=${1:?Pass the hbc-reborn checkout}
+"$SCRIPT_DIR/check-hbc.sh" "$SOURCE"
 [ -f "$SOURCE/sdk/hbc_agent/Makefile" ] || { echo "Missing HBC SDK: $SOURCE" >&2; exit 1; }
 mkdir -p "$SCRIPT_DIR/.deps/hbc-sdk/build"
 ln -sfn "$(cd "$SOURCE" && pwd)" "$SCRIPT_DIR/.deps/hbc-sdk/source"

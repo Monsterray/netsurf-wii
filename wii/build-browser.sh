@@ -134,6 +134,8 @@ chmod 0644 "$PACKAGE_DIR/fonts/RodinNTLG-M.otf" \
 	awk '/^#define _V_(MAJOR|MINOR|PATCH)_/ {print}' "$DEVKITPRO/libogc/include/ogc/libversion.h"
 	git -C "$SOURCE_ROOT" rev-parse HEAD
 	if [ "$HBC_AGENT" = 1 ]; then
+		. "$SCRIPT_DIR/hbc-reborn.env"
+		printf "HBC_REBORN_VERSION=%s\n" "$HBC_REBORN_VERSION"
 		printf "HBC_SDK_COMMIT="
 		git -C "$HBC_AGENT_ROOT" rev-parse HEAD
 	fi

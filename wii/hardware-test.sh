@@ -3,7 +3,8 @@
 set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
-CLIENT=${HBC_CLIENT:-"$ROOT/../hbc-reborn/tools/hbc.py"}
+HBC_AGENT_ROOT=${HBC_AGENT_ROOT:-"$ROOT/../hbc-reborn"}
+CLIENT=${HBC_CLIENT:-"$HBC_AGENT_ROOT/tools/hbc.py"}
 BENCH=${WII_BENCH_CLIENT:-"$HOME/.wii-bench/wiibench.py"}
 if [ -z "${WII_HOST_PYTHON:-}" ]; then
     WII_HOST_PYTHON=python3
@@ -14,6 +15,16 @@ if [ -z "${WII_HOST_PYTHON:-}" ]; then
     fi
 fi
 if [ -z "${WII_BENCH_JOB:-}" ]; then
+    "$SCRIPT_DIR/check-hbc.sh" "$HBC_AGENT_ROOT"
+    # The installed launcher retains shared queue state and runs this source.
+    export WII_BENCH_SRC="$HBC_AGENT_ROOT/tools/wii-bench/wiibench.py"
+    . "$SCRIPT_DIR/hbc-reborn.env"
+    if grep -qx 'HBC_AGENT=1' "$SCRIPT_DIR/dist/apps/netsurf/build-info.txt"; then
+        grep -qx "HBC_SDK_COMMIT=$HBC_REBORN_COMMIT" "$SCRIPT_DIR/dist/apps/netsurf/build-info.txt" || {
+            echo 'Rebuild the browser with the reviewed HBC SDK before hardware testing.' >&2
+            exit 1
+        }
+    fi
 	[ -s "$SCRIPT_DIR/dist/apps/netsurf/boot.dol" ] || { echo 'Build the browser first.' >&2; exit 1; }
 	mkdir -p "$SCRIPT_DIR/.deps/runs"
 	RUN=$(mktemp -d "$SCRIPT_DIR/.deps/runs/hardware-XXXXXX")
@@ -71,6 +82,7 @@ if [ -z "${WII_BENCH_JOB:-}" ]; then
 		--agent netsurf-wii --timeout "${WII_JOB_SECONDS:-240}" --cwd "$ROOT" -- \
 		env "NETSURF_WII_RUN=$RUN" "HBC_CLIENT=$CLIENT" \
 		"WII_HOST_PYTHON=${WII_HOST_PYTHON:-python3}" \
+        "WII_BENCH_SRC=$WII_BENCH_SRC" \
 		bash -c "$(cat "$SCRIPT_DIR/hardware-test.sh")" "$SCRIPT_DIR/hardware-test.sh")
 	printf 'Hardware smoke queued: %s\nArtifacts: %s\n' "$job" "$RUN"
 	exec python3 "$BENCH" wait "$job"
@@ -78,11 +90,17 @@ fi
 RUN=${NETSURF_WII_RUN:?Missing frozen run directory}
 WII=${WII_BENCH_IP:?The dispatcher must provide the leased Wii address}
 hbc() { "${WII_HOST_PYTHON:-python3}" "$CLIENT" --wii "$WII" "$@"; }
+. "$SCRIPT_DIR/hbc-reborn.env"
 hbc wait 60
 hbc --json status > "$RUN/hbc-before.json"
-python3 - "$RUN/hbc-before.json" <<'PY_CHECK'
+python3 - "$RUN/hbc-before.json" "$HBC_REBORN_VERSION" <<'PY_CHECK'
 import json, sys
-assert not json.load(open(sys.argv[1])).get("agent"), "Wii is running another app; refusing to stage"
+status = json.load(open(sys.argv[1]))
+assert not status.get("agent"), "Wii is running another app; refusing to stage"
+assert status.get("version") == sys.argv[2], (
+    f"Run HBC-Reborn {sys.argv[2]} on the leased Wii before staging; "
+    f"found {status.get('version')}"
+)
 PY_CHECK
 # Preserve evidence from an interrupted preceding browser run before staging.
 hbc get sd:/apps/netsurf/wii-test.txt "$RUN/previous-report.txt" > "$RUN/previous-report.log" 2>&1 || true
