@@ -23,6 +23,6 @@ with tempfile.TemporaryDirectory() as directory:
         assert names == [
             f"{index:02}{suffix}"
             for index in range(1, count + 1)
-            for suffix in [".txt", "-top.ppm", "-scroll.ppm", "-source.html"]
+            for suffix in [".txt", "-top.ppm", "-scroll.ppm", "-source.html", "-dom.txt", "-layout.txt"]
         ], names
 print("PASS: actual collector uses matching filenames for 2, 11 and 13 sites")

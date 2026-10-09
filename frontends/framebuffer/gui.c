@@ -1364,8 +1364,11 @@ static void wii_test_poll(void *context)
 		fb_complete = true;
 		return;
 	}
+	/* The fixture finishes asynchronous DOM/image checks after load. */
 	if (wii_test_phase == 0 && content != NULL &&
-	    content_get_status(content) == CONTENT_STATUS_DONE) {
+	    content_get_status(content) == CONTENT_STATUS_DONE &&
+	    (!wii_test_js || strcmp(content_get_title(content),
+				  "NetSurf Wii JavaScript PASS") == 0)) {
 		wii_test_js_ok = !wii_test_js ||
 				 strcmp(content_get_title(content),
 					"NetSurf Wii JavaScript PASS") == 0;
